@@ -1,0 +1,180 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+                             http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>org.forgerock.openicf.connectors</groupId>
+    <artifactId>m365copilot-connector</artifactId>
+    <version>1.5.20.33</version>
+    <packaging>bundle</packaging>
+
+    <name>M365 Copilot Connector</name>
+    <description>OpenICF connector for Microsoft 365 Copilot agent management via Microsoft Graph API</description>
+
+    <properties>
+        <maven.compiler.source>17</maven.compiler.source>
+        <maven.compiler.target>17</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
+        <!-- Framework — artifact version; ConnectorBundle-FrameworkVersion is always "1.5" -->
+        <openicf.framework.version>1.5.20.32</openicf.framework.version>
+
+        <!-- HTTP + JSON -->
+        <httpclient.version>4.5.14</httpclient.version>
+        <httpcore.version>4.4.16</httpcore.version>
+        <jackson.version>2.16.2</jackson.version>
+
+        <!-- Azure Identity -->
+        <azure.identity.version>1.11.4</azure.identity.version>
+
+        <!-- Test -->
+        <junit.jupiter.version>5.10.2</junit.jupiter.version>
+        <mockito.version>5.11.0</mockito.version>
+
+        <!-- Build -->
+        <maven.bundle.plugin.version>5.1.9</maven.bundle.plugin.version>
+    </properties>
+
+    <dependencies>
+        <!-- OpenICF framework — provided by IDM/RCS at runtime; never embed -->
+        <dependency>
+            <groupId>org.forgerock.openicf.framework</groupId>
+            <artifactId>connector-framework</artifactId>
+            <version>${openicf.framework.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.forgerock.openicf.framework</groupId>
+            <artifactId>connector-framework-internal</artifactId>
+            <version>${openicf.framework.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- HTTP client (compile = embedded in lib/) -->
+        <dependency>
+            <groupId>org.apache.httpcomponents</groupId>
+            <artifactId>httpclient</artifactId>
+            <version>${httpclient.version}</version>
+            <scope>compile</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.httpcomponents</groupId>
+            <artifactId>httpcore</artifactId>
+            <version>${httpcore.version}</version>
+            <scope>compile</scope>
+        </dependency>
+
+        <!-- JSON (compile = embedded in lib/) -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>${jackson.version}</version>
+            <scope>compile</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-core</artifactId>
+            <version>${jackson.version}</version>
+            <scope>compile</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-annotations</artifactId>
+            <version>${jackson.version}</version>
+            <scope>compile</scope>
+        </dependency>
+
+        <!-- Azure Identity for managed identity support -->
+        <dependency>
+            <groupId>com.azure</groupId>
+            <artifactId>azure-identity</artifactId>
+            <version>${azure.identity.version}</version>
+            <scope>compile</scope>
+        </dependency>
+
+        <!-- slf4j — provided by the runtime -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <version>2.0.13</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- Test -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>${junit.jupiter.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-core</artifactId>
+            <version>${mockito.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-junit-jupiter</artifactId>
+            <version>${mockito.version}</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.12.1</version>
+                <configuration>
+                    <source>17</source>
+                    <target>17</target>
+                    <encoding>UTF-8</encoding>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.2.5</version>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.felix</groupId>
+                <artifactId>maven-bundle-plugin</artifactId>
+                <version>${maven.bundle.plugin.version}</version>
+                <extensions>true</extensions>
+                <configuration>
+                    <instructions>
+                        <!-- MUST be literal strings -->
+                        <Bundle-SymbolicName>org.forgerock.openicf.connectors.m365copilot-connector</Bundle-SymbolicName>
+                        <ConnectorBundle-Name>org.forgerock.openicf.connectors.m365copilot-connector</ConnectorBundle-Name>
+                        <ConnectorBundle-FrameworkVersion>1.5</ConnectorBundle-FrameworkVersion>
+
+                        <!-- May use Maven variables -->
+                        <Bundle-Version>${project.version}</Bundle-Version>
+                        <ConnectorBundle-Version>${project.version}</ConnectorBundle-Version>
+
+                        <Embed-Dependency>
+                            httpclient,httpcore,jackson-databind,jackson-core,jackson-annotations,
+                            commons-logging,commons-codec,azure-identity,azure-core,azure-core-http-netty,
+                            msal4j
+                        </Embed-Dependency>
+                        <Embed-Transitive>false</Embed-Transitive>
+                        <Embed-Directory>lib</Embed-Directory>
+
+                        <Import-Package>
+                            org.identityconnectors.*;version="1.5",
+                            *;resolution:=optional
+                        </Import-Package>
+                        <Export-Package>
+                            org.forgerock.openicf.connectors.m365copilot.*;version="${project.version}"
+                        </Export-Package>
+                    </instructions>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>
