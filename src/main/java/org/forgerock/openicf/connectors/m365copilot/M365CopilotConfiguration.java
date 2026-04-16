@@ -29,6 +29,9 @@ public class M365CopilotConfiguration extends AbstractConfiguration implements S
     // OPENICF-5005 begin: flag to gate agentIdentityBinding scanning; default false — operators must opt in
     private boolean identityBindingScanEnabled = false;
     // OPENICF-5005 end
+    // OPENICF-5013 begin: when false (default), agents with null publishedon are excluded from searches
+    private boolean includeUnpublishedAgents = false;
+    // OPENICF-5013 end
 
     @ConfigurationProperty(order = 1,
             displayMessageKey = "tenantId.display",
@@ -93,6 +96,16 @@ public class M365CopilotConfiguration extends AbstractConfiguration implements S
         this.identityBindingScanEnabled = identityBindingScanEnabled;
     }
     // OPENICF-5005 end
+
+    // OPENICF-5013 begin
+    @ConfigurationProperty(order = 11,
+            displayMessageKey = "includeUnpublishedAgents.display",
+            helpMessageKey = "includeUnpublishedAgents.help")
+    public boolean isIncludeUnpublishedAgents() { return includeUnpublishedAgents; }
+    public void setIncludeUnpublishedAgents(boolean includeUnpublishedAgents) {
+        this.includeUnpublishedAgents = includeUnpublishedAgents;
+    }
+    // OPENICF-5013 end
 
     String decryptSecret() {
         return SecurityUtil.decrypt(clientSecret);

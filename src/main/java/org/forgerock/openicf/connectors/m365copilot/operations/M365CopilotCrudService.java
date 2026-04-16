@@ -42,6 +42,12 @@ public class M365CopilotCrudService {
         LOG.ok("GET bot by UID: {0}", botId);
         JsonNode node = client.getBot(botId);
         BotDescriptor bot = BotDescriptor.fromJson(node);
+        // OPENICF-5013 begin
+        if (!cfg.isIncludeUnpublishedAgents() && !bot.isPublished()) {
+            throw new UnknownUidException(
+                    "Agent is unpublished and includeUnpublishedAgents=false: " + botId);
+        }
+        // OPENICF-5013 end
         List<BotComponentDescriptor> components = client.listAllBotComponents().stream()
                 .filter(c -> botId.equals(c.getParentBotId()))
                 .collect(Collectors.toList());
@@ -56,6 +62,11 @@ public class M365CopilotCrudService {
 
         for (JsonNode node : botNodes) {
             BotDescriptor bot = BotDescriptor.fromJson(node);
+            // OPENICF-5013 begin
+            if (!cfg.isIncludeUnpublishedAgents() && !bot.isPublished()) {
+                continue;
+            }
+            // OPENICF-5013 end
             if (!handler.handle(bot.toConnectorObject(allComponents))) {
                 LOG.ok("Handler returned false, stopping iteration");
                 return;

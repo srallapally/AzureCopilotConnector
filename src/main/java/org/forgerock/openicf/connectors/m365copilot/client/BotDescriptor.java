@@ -184,6 +184,11 @@ public class BotDescriptor {
 
     public String getBotId() { return botId; }
 
+    // OPENICF-5013 begin
+    /** True when this agent has ever been published (publishedon is non-null). */
+    public boolean isPublished() { return publishedOn != null; }
+    // OPENICF-5013 end
+
     private static String accessControlPolicyLabel(int value) {
         switch (value) {
             case ACCESS_POLICY_ANY:              return "Any";
