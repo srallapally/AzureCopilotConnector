@@ -134,10 +134,25 @@ public class M365CopilotCrudService {
     // --- agentIdentityBinding ---
 
     public void searchIdentityBindings(String query, ResultsHandler handler, OperationOptions options) {
-        if (!hasInventorySource()) {
-            LOG.ok("No inventory source configured; returning empty results for agentIdentityBinding");
+        // OPENICF-5005 begin: gate on identityBindingScanEnabled; OPENICF-5002: WARN when enabled but inventory missing
+        if (!cfg.isIdentityBindingScanEnabled()) {
+            LOG.ok("identityBindingScanEnabled=false; skipping agentIdentityBinding search");
+            if (query != null && !query.isEmpty()) {
+                throw new UnknownUidException(
+                        "Identity binding scan is disabled; agentIdentityBinding objects are not available");
+            }
             return;
         }
+        if (!hasInventorySource()) {
+            LOG.warn("identityBindingScanEnabled=true but no inventory source configured "
+                    + "(toolsInventoryUrl or toolsInventoryFilePath); returning no agentIdentityBinding data");
+            if (query != null && !query.isEmpty()) {
+                throw new UnknownUidException("No inventory source configured");
+            }
+            return;
+        }
+        // OPENICF-5002 end
+        // OPENICF-5005 end
         if (query != null && !query.isEmpty()) {
             searchIdentityBindingByUid(query, handler);
         } else {

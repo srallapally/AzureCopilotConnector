@@ -50,7 +50,9 @@ public final class M365CopilotConstants {
     public static final String ATTR_MODIFIED_ON           = "modifiedOn";
     public static final String ATTR_TOOL_IDS              = "toolIds";
     public static final String ATTR_KNOWLEDGE_BASE_IDS    = "knowledgeBaseIds";
-    public static final String ATTR_CONNECTED_AGENTS      = "connectedAgents";
+    // OPENICF-5007 begin: renamed from ATTR_CONNECTED_AGENTS/"connectedAgents" — the value is the TaskDialog schemaName, a reference not a resolved target agent. Real target-bot extraction tracked as OPENICF-5010.
+    public static final String ATTR_CONNECTED_AGENT_REFERENCES = "connectedAgentReferences";
+    // OPENICF-5007 end
 
     // __ACCOUNT__ configuration-derived attribute names
     public static final String ATTR_CONTENT_MODERATION         = "contentModeration";

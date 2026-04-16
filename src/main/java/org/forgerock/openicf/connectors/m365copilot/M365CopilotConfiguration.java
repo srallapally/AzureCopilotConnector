@@ -26,6 +26,9 @@ public class M365CopilotConfiguration extends AbstractConfiguration implements S
     private String toolsInventoryFilePath;
     private int httpTimeoutSeconds = 30;
     private boolean logPayloads = false;
+    // OPENICF-5005 begin: flag to gate agentIdentityBinding scanning; default false — operators must opt in
+    private boolean identityBindingScanEnabled = false;
+    // OPENICF-5005 end
 
     @ConfigurationProperty(order = 1,
             displayMessageKey = "tenantId.display",
@@ -80,6 +83,16 @@ public class M365CopilotConfiguration extends AbstractConfiguration implements S
             helpMessageKey = "logPayloads.help")
     public boolean isLogPayloads() { return logPayloads; }
     public void setLogPayloads(boolean logPayloads) { this.logPayloads = logPayloads; }
+
+    // OPENICF-5005 begin
+    @ConfigurationProperty(order = 10,
+            displayMessageKey = "identityBindingScanEnabled.display",
+            helpMessageKey = "identityBindingScanEnabled.help")
+    public boolean isIdentityBindingScanEnabled() { return identityBindingScanEnabled; }
+    public void setIdentityBindingScanEnabled(boolean identityBindingScanEnabled) {
+        this.identityBindingScanEnabled = identityBindingScanEnabled;
+    }
+    // OPENICF-5005 end
 
     String decryptSecret() {
         return SecurityUtil.decrypt(clientSecret);

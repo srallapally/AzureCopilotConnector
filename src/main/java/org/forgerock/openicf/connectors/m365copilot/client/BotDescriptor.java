@@ -147,7 +147,9 @@ public class BotDescriptor {
         // Derive relationship attributes from child components
         List<String> toolIds = new ArrayList<>();
         List<String> knowledgeBaseIds = new ArrayList<>();
-        List<String> connectedAgents = new ArrayList<>();
+        // OPENICF-5007 begin: renamed local from connectedAgents to connectedAgentReferences to match constant rename
+        List<String> connectedAgentReferences = new ArrayList<>();
+        // OPENICF-5007 end
 
         for (BotComponentDescriptor comp : allComponents) {
             if (!botId.equals(comp.getParentBotId())) continue;
@@ -161,7 +163,9 @@ public class BotDescriptor {
                     break;
                 case CONNECTED_AGENT:
                     if (comp.getSchemaName() != null) {
-                        connectedAgents.add(comp.getSchemaName());
+                        // OPENICF-5007 begin
+                        connectedAgentReferences.add(comp.getSchemaName());
+                        // OPENICF-5007 end
                     }
                     break;
                 default:
@@ -171,7 +175,9 @@ public class BotDescriptor {
 
         cob.addAttribute(AttributeBuilder.build(ATTR_TOOL_IDS, toolIds));
         cob.addAttribute(AttributeBuilder.build(ATTR_KNOWLEDGE_BASE_IDS, knowledgeBaseIds));
-        cob.addAttribute(AttributeBuilder.build(ATTR_CONNECTED_AGENTS, connectedAgents));
+        // OPENICF-5007 begin
+        cob.addAttribute(AttributeBuilder.build(ATTR_CONNECTED_AGENT_REFERENCES, connectedAgentReferences));
+        // OPENICF-5007 end
 
         return cob.build();
     }

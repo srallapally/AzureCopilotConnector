@@ -160,7 +160,9 @@ public class M365CopilotConnector implements
         ocib.addAttributeInfo(readOnly(ATTR_MODIFIED_ON, String.class, false));
         ocib.addAttributeInfo(readOnly(ATTR_TOOL_IDS, String.class, true));
         ocib.addAttributeInfo(readOnly(ATTR_KNOWLEDGE_BASE_IDS, String.class, true));
-        ocib.addAttributeInfo(readOnly(ATTR_CONNECTED_AGENTS, String.class, true));
+        // OPENICF-5007 begin: renamed schema attribute from connectedAgents to connectedAgentReferences
+        ocib.addAttributeInfo(readOnly(ATTR_CONNECTED_AGENT_REFERENCES, String.class, true));
+        // OPENICF-5007 end
         ocib.addAttributeInfo(readOnly(ATTR_CONTENT_MODERATION, String.class, false));
         ocib.addAttributeInfo(readOnly(ATTR_GENERATIVE_ACTIONS_ENABLED, Boolean.class, false));
         ocib.addAttributeInfo(readOnly(ATTR_USE_MODEL_KNOWLEDGE, Boolean.class, false));
