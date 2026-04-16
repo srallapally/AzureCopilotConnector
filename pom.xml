@@ -10,35 +10,27 @@
     <version>1.5.20.33</version>
     <packaging>bundle</packaging>
 
-    <name>M365 Copilot Connector</name>
-    <description>OpenICF connector for Microsoft 365 Copilot agent management via Microsoft Graph API</description>
+    <name>Copilot Studio Connector</name>
+    <description>OpenICF connector for Microsoft Copilot Studio agent governance via Power Platform Dataverse API</description>
 
     <properties>
         <maven.compiler.source>17</maven.compiler.source>
         <maven.compiler.target>17</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 
-        <!-- Framework — artifact version; ConnectorBundle-FrameworkVersion is always "1.5" -->
-        <openicf.framework.version>1.5.20.32</openicf.framework.version>
+        <openicf.framework.version>1.5.20.33</openicf.framework.version>
 
-        <!-- HTTP + JSON -->
         <httpclient.version>4.5.14</httpclient.version>
         <httpcore.version>4.4.16</httpcore.version>
         <jackson.version>2.16.2</jackson.version>
 
-        <!-- Azure Identity -->
-        <azure.identity.version>1.11.4</azure.identity.version>
-
-        <!-- Test -->
         <junit.jupiter.version>5.10.2</junit.jupiter.version>
         <mockito.version>5.11.0</mockito.version>
 
-        <!-- Build -->
         <maven.bundle.plugin.version>5.1.9</maven.bundle.plugin.version>
     </properties>
 
     <dependencies>
-        <!-- OpenICF framework — provided by IDM/RCS at runtime; never embed -->
         <dependency>
             <groupId>org.forgerock.openicf.framework</groupId>
             <artifactId>connector-framework</artifactId>
@@ -52,7 +44,6 @@
             <scope>provided</scope>
         </dependency>
 
-        <!-- HTTP client (compile = embedded in lib/) -->
         <dependency>
             <groupId>org.apache.httpcomponents</groupId>
             <artifactId>httpclient</artifactId>
@@ -66,7 +57,6 @@
             <scope>compile</scope>
         </dependency>
 
-        <!-- JSON (compile = embedded in lib/) -->
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
@@ -86,15 +76,6 @@
             <scope>compile</scope>
         </dependency>
 
-        <!-- Azure Identity for managed identity support -->
-        <dependency>
-            <groupId>com.azure</groupId>
-            <artifactId>azure-identity</artifactId>
-            <version>${azure.identity.version}</version>
-            <scope>compile</scope>
-        </dependency>
-
-        <!-- slf4j — provided by the runtime -->
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>
@@ -102,7 +83,6 @@
             <scope>provided</scope>
         </dependency>
 
-        <!-- Test -->
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
@@ -147,19 +127,16 @@
                 <extensions>true</extensions>
                 <configuration>
                     <instructions>
-                        <!-- MUST be literal strings -->
                         <Bundle-SymbolicName>org.forgerock.openicf.connectors.m365copilot-connector</Bundle-SymbolicName>
                         <ConnectorBundle-Name>org.forgerock.openicf.connectors.m365copilot-connector</ConnectorBundle-Name>
                         <ConnectorBundle-FrameworkVersion>1.5</ConnectorBundle-FrameworkVersion>
 
-                        <!-- May use Maven variables -->
                         <Bundle-Version>${project.version}</Bundle-Version>
                         <ConnectorBundle-Version>${project.version}</ConnectorBundle-Version>
 
                         <Embed-Dependency>
                             httpclient,httpcore,jackson-databind,jackson-core,jackson-annotations,
-                            commons-logging,commons-codec,azure-identity,azure-core,azure-core-http-netty,
-                            msal4j
+                            commons-logging,commons-codec
                         </Embed-Dependency>
                         <Embed-Transitive>false</Embed-Transitive>
                         <Embed-Directory>lib</Embed-Directory>

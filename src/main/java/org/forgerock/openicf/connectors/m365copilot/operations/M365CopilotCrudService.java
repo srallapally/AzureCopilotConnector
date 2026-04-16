@@ -2,14 +2,14 @@
 package org.forgerock.openicf.connectors.m365copilot.operations;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import org.forgerock.openicf.connectors.m365copilot.M365CopilotConfiguration;
-import org.forgerock.openicf.connectors.m365copilot.client.CopilotElementDescriptor;
+import org.forgerock.openicf.connectors.m365copilot.client.BotComponentDescriptor;
+import org.forgerock.openicf.connectors.m365copilot.client.BotDescriptor;
 import org.forgerock.openicf.connectors.m365copilot.client.CopilotIdentityBindingDescriptor;
-import org.forgerock.openicf.connectors.m365copilot.client.CopilotPackageDescriptor;
 import org.forgerock.openicf.connectors.m365copilot.client.M365CopilotClient;
-import org.forgerock.openicf.connectors.m365copilot.utils.M365CopilotConstants;
 import org.identityconnectors.common.logging.Log;
 import org.identityconnectors.framework.common.exceptions.ConnectorException;
 import org.identityconnectors.framework.common.exceptions.UnknownUidException;
@@ -28,20 +28,44 @@ public class M365CopilotCrudService {
         this.cfg = cfg;
     }
 
-    public void searchPackages(String query, ResultsHandler handler, OperationOptions options) {
+    // --- __ACCOUNT__ ---
+
+    public void searchAgents(String query, ResultsHandler handler, OperationOptions options) {
         if (query != null && !query.isEmpty()) {
-            searchPackageByUid(query, handler);
+            searchAgentByUid(query, handler);
         } else {
-            searchAllPackages(handler);
+            searchAllAgents(handler);
         }
     }
 
-    public void searchTools(String query, ResultsHandler handler, OperationOptions options) {
-        if (!hasInventorySource()) {
-            LOG.ok("No inventory source configured; returning empty results for agentTool");
-            return;
-        }
+    private void searchAgentByUid(String botId, ResultsHandler handler) {
+        LOG.ok("GET bot by UID: {0}", botId);
+        JsonNode node = client.getBot(botId);
+        BotDescriptor bot = BotDescriptor.fromJson(node);
+        List<BotComponentDescriptor> components = client.listAllBotComponents().stream()
+                .filter(c -> botId.equals(c.getParentBotId()))
+                .collect(Collectors.toList());
+        handler.handle(bot.toConnectorObject(components));
+    }
 
+    private void searchAllAgents(ResultsHandler handler) {
+        LOG.ok("Searching all agents");
+        List<JsonNode> botNodes = client.listAllBots();
+        List<BotComponentDescriptor> allComponents = client.listAllBotComponents();
+        LOG.ok("Retrieved {0} bots, {1} botcomponents", botNodes.size(), allComponents.size());
+
+        for (JsonNode node : botNodes) {
+            BotDescriptor bot = BotDescriptor.fromJson(node);
+            if (!handler.handle(bot.toConnectorObject(allComponents))) {
+                LOG.ok("Handler returned false, stopping iteration");
+                return;
+            }
+        }
+    }
+
+    // --- agentTool ---
+
+    public void searchTools(String query, ResultsHandler handler, OperationOptions options) {
         if (query != null && !query.isEmpty()) {
             searchToolByUid(query, handler);
         } else {
@@ -49,12 +73,71 @@ public class M365CopilotCrudService {
         }
     }
 
+    private void searchToolByUid(String botComponentId, ResultsHandler handler) {
+        LOG.ok("GET botcomponent (tool) by UID: {0}", botComponentId);
+        JsonNode node = client.getBotComponent(botComponentId);
+        BotComponentDescriptor comp = BotComponentDescriptor.fromJson(node);
+        BotComponentDescriptor.ComponentKind kind = comp.getComponentKind();
+        if (kind != BotComponentDescriptor.ComponentKind.TOOL_CONNECTOR
+                && kind != BotComponentDescriptor.ComponentKind.TOOL_MCP) {
+            throw new UnknownUidException("Botcomponent is not a tool: " + botComponentId);
+        }
+        handler.handle(comp.toAgentToolConnectorObject());
+    }
+
+    private void searchAllTools(ResultsHandler handler) {
+        LOG.ok("Searching all tools");
+        for (BotComponentDescriptor comp : client.listAllBotComponents()) {
+            BotComponentDescriptor.ComponentKind kind = comp.getComponentKind();
+            if (kind != BotComponentDescriptor.ComponentKind.TOOL_CONNECTOR
+                    && kind != BotComponentDescriptor.ComponentKind.TOOL_MCP) {
+                continue;
+            }
+            if (!handler.handle(comp.toAgentToolConnectorObject())) {
+                return;
+            }
+        }
+    }
+
+    // --- agentKnowledgeBase ---
+
+    public void searchKnowledgeBases(String query, ResultsHandler handler, OperationOptions options) {
+        if (query != null && !query.isEmpty()) {
+            searchKnowledgeBaseByUid(query, handler);
+        } else {
+            searchAllKnowledgeBases(handler);
+        }
+    }
+
+    private void searchKnowledgeBaseByUid(String botComponentId, ResultsHandler handler) {
+        LOG.ok("GET botcomponent (knowledge base) by UID: {0}", botComponentId);
+        JsonNode node = client.getBotComponent(botComponentId);
+        BotComponentDescriptor comp = BotComponentDescriptor.fromJson(node);
+        if (comp.getComponentKind() != BotComponentDescriptor.ComponentKind.KNOWLEDGE_SOURCE) {
+            throw new UnknownUidException("Botcomponent is not a knowledge base: " + botComponentId);
+        }
+        handler.handle(comp.toKnowledgeBaseConnectorObject());
+    }
+
+    private void searchAllKnowledgeBases(ResultsHandler handler) {
+        LOG.ok("Searching all knowledge bases");
+        for (BotComponentDescriptor comp : client.listAllBotComponents()) {
+            if (comp.getComponentKind() != BotComponentDescriptor.ComponentKind.KNOWLEDGE_SOURCE) {
+                continue;
+            }
+            if (!handler.handle(comp.toKnowledgeBaseConnectorObject())) {
+                return;
+            }
+        }
+    }
+
+    // --- agentIdentityBinding ---
+
     public void searchIdentityBindings(String query, ResultsHandler handler, OperationOptions options) {
         if (!hasInventorySource()) {
             LOG.ok("No inventory source configured; returning empty results for agentIdentityBinding");
             return;
         }
-
         if (query != null && !query.isEmpty()) {
             searchIdentityBindingByUid(query, handler);
         } else {
@@ -62,111 +145,23 @@ public class M365CopilotCrudService {
         }
     }
 
-    private void searchPackageByUid(String uid, ResultsHandler handler) {
-        LOG.ok("GET package by UID: {0}", uid);
-        JsonNode detailNode = client.graphGetSingle(M365CopilotConstants.PACKAGES_PATH + "/" + uid);
-        CopilotPackageDescriptor descriptor = CopilotPackageDescriptor.fromListJson(detailNode);
-        descriptor.enrichFromDetail(detailNode);
-
-        enrichFromInventoryIfEnabled(descriptor, uid);
-
-        handler.handle(descriptor.toConnectorObject());
-    }
-
-    private void searchAllPackages(ResultsHandler handler) {
-        String path = M365CopilotConstants.PACKAGES_PATH + buildFilterQueryString();
-        LOG.ok("Searching all packages: {0}", path);
-
-        List<JsonNode> allItems = client.graphGetAllPages(path);
-        LOG.ok("Retrieved {0} packages", allItems.size());
-
-        for (JsonNode item : allItems) {
-            CopilotPackageDescriptor descriptor = CopilotPackageDescriptor.fromListJson(item);
-
-            if (cfg.isFetchPackageDetails()) {
-                try {
-                    JsonNode detail = client.graphGetSingle(
-                            M365CopilotConstants.PACKAGES_PATH + "/" + descriptor.getId());
-                    descriptor.enrichFromDetail(detail);
-                    enrichFromInventoryIfEnabled(descriptor, descriptor.getId());
-                } catch (Exception e) {
-                    LOG.warn("Failed to fetch details for package {0}: {1}",
-                            descriptor.getId(), e.getMessage());
-                }
-            }
-
-            if (!handler.handle(descriptor.toConnectorObject())) {
-                LOG.ok("Handler returned false, stopping iteration");
-                break;
-            }
-        }
-    }
-
-    private void searchToolByUid(String toolId, ResultsHandler handler) {
-        LOG.ok("Searching for tool by UID: {0}", toolId);
-        List<JsonNode> packages = client.graphGetAllPages(
-                M365CopilotConstants.PACKAGES_PATH + buildFilterQueryString());
-
-        for (JsonNode pkgNode : packages) {
-            String packageId = pkgNode.has("id") ? pkgNode.get("id").asText() : null;
-            if (packageId == null) continue;
-
-            JsonNode inventory = client.fetchInventoryJson(packageId);
-            if (inventory == null) continue;
-
-            List<CopilotElementDescriptor> tools = CopilotElementDescriptor.fromInventoryJson(inventory, packageId);
-            for (CopilotElementDescriptor tool : tools) {
-                if (toolId.equals(tool.getId())) {
-                    handler.handle(tool.toConnectorObject());
-                    return;
-                }
-            }
-        }
-
-        throw new UnknownUidException("Tool not found: " + toolId);
-    }
-
-    private void searchAllTools(ResultsHandler handler) {
-        LOG.ok("Searching all tools");
-        List<JsonNode> packages = client.graphGetAllPages(
-                M365CopilotConstants.PACKAGES_PATH + buildFilterQueryString());
-
-        for (JsonNode pkgNode : packages) {
-            String packageId = pkgNode.has("id") ? pkgNode.get("id").asText() : null;
-            if (packageId == null) continue;
-
-            JsonNode inventory = client.fetchInventoryJson(packageId);
-            if (inventory == null) continue;
-
-            List<CopilotElementDescriptor> tools = CopilotElementDescriptor.fromInventoryJson(inventory, packageId);
-            for (CopilotElementDescriptor tool : tools) {
-                if (!handler.handle(tool.toConnectorObject())) {
-                    return;
-                }
-            }
-        }
-    }
-
     private void searchIdentityBindingByUid(String compositeUid, ResultsHandler handler) {
         LOG.ok("Searching for identity binding by UID: {0}", compositeUid);
-        int separatorIdx = compositeUid.indexOf(':');
-        if (separatorIdx <= 0) {
-            throw new ConnectorException("Invalid identity binding UID format (expected packageId:resourceId): "
-                    + compositeUid);
+        int sep = compositeUid.indexOf(':');
+        if (sep <= 0) {
+            throw new ConnectorException(
+                    "Invalid identity binding UID format (expected agentId:groupId): " + compositeUid);
         }
+        String agentId = compositeUid.substring(0, sep);
+        String groupId = compositeUid.substring(sep + 1);
 
-        String packageId = compositeUid.substring(0, separatorIdx);
-        String resourceId = compositeUid.substring(separatorIdx + 1);
-
-        JsonNode inventory = client.fetchInventoryJson(packageId);
+        JsonNode inventory = client.fetchInventoryJson();
         if (inventory == null) {
-            throw new UnknownUidException("No inventory found for package: " + packageId);
+            throw new UnknownUidException("No inventory available");
         }
 
-        List<CopilotIdentityBindingDescriptor> bindings =
-                CopilotIdentityBindingDescriptor.fromInventoryJson(inventory, packageId);
-        for (CopilotIdentityBindingDescriptor binding : bindings) {
-            if (resourceId.equals(binding.getResourceId())) {
+        for (CopilotIdentityBindingDescriptor binding : CopilotIdentityBindingDescriptor.fromInventoryJson(inventory)) {
+            if (agentId.equals(binding.getAgentId()) && groupId.equals(binding.getGroupId())) {
                 handler.handle(binding.toConnectorObject());
                 return;
             }
@@ -177,31 +172,14 @@ public class M365CopilotCrudService {
 
     private void searchAllIdentityBindings(ResultsHandler handler) {
         LOG.ok("Searching all identity bindings");
-        List<JsonNode> packages = client.graphGetAllPages(
-                M365CopilotConstants.PACKAGES_PATH + buildFilterQueryString());
-
-        for (JsonNode pkgNode : packages) {
-            String packageId = pkgNode.has("id") ? pkgNode.get("id").asText() : null;
-            if (packageId == null) continue;
-
-            JsonNode inventory = client.fetchInventoryJson(packageId);
-            if (inventory == null) continue;
-
-            List<CopilotIdentityBindingDescriptor> bindings =
-                    CopilotIdentityBindingDescriptor.fromInventoryJson(inventory, packageId);
-            for (CopilotIdentityBindingDescriptor binding : bindings) {
-                if (!handler.handle(binding.toConnectorObject())) {
-                    return;
-                }
-            }
+        JsonNode inventory = client.fetchInventoryJson();
+        if (inventory == null) {
+            LOG.ok("Inventory is null, returning empty results");
+            return;
         }
-    }
-
-    private void enrichFromInventoryIfEnabled(CopilotPackageDescriptor descriptor, String packageId) {
-        if (cfg.isEntraAgentIdLookupEnabled() || hasInventorySource()) {
-            JsonNode inventory = client.fetchInventoryJson(packageId);
-            if (inventory != null) {
-                descriptor.enrichFromInventory(inventory);
+        for (CopilotIdentityBindingDescriptor binding : CopilotIdentityBindingDescriptor.fromInventoryJson(inventory)) {
+            if (!handler.handle(binding.toConnectorObject())) {
+                return;
             }
         }
     }
@@ -209,12 +187,5 @@ public class M365CopilotCrudService {
     private boolean hasInventorySource() {
         return (cfg.getToolsInventoryUrl() != null && !cfg.getToolsInventoryUrl().isEmpty())
                 || (cfg.getToolsInventoryFilePath() != null && !cfg.getToolsInventoryFilePath().isEmpty());
-    }
-
-    private String buildFilterQueryString() {
-        if (cfg.getPackageTypeFilter() != null && !cfg.getPackageTypeFilter().isEmpty()) {
-            return "?$filter=type eq '" + cfg.getPackageTypeFilter() + "'";
-        }
-        return "";
     }
 }

@@ -19,13 +19,13 @@ public class CopilotIdentityBindingDescriptor {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    private String packageId;
-    private String resourceId;
-    private String resourceType;
-    private String upn;
-    private String displayName;
+    private String agentId;
+    private String groupId;
+    private String groupDisplayName;
+    private String groupMail;
+    private String groupType;
 
-    public static List<CopilotIdentityBindingDescriptor> fromInventoryJson(JsonNode inventoryRoot, String packageId) {
+    public static List<CopilotIdentityBindingDescriptor> fromInventoryJson(JsonNode inventoryRoot) {
         List<CopilotIdentityBindingDescriptor> result = new ArrayList<>();
         JsonNode bindings = inventoryRoot.get("identityBindings");
         if (bindings == null || !bindings.isArray()) {
@@ -33,36 +33,26 @@ public class CopilotIdentityBindingDescriptor {
         }
         for (JsonNode binding : bindings) {
             CopilotIdentityBindingDescriptor d = new CopilotIdentityBindingDescriptor();
-            d.packageId = packageId;
-            d.resourceId = binding.has("resourceId") ? binding.get("resourceId").asText() : null;
-            d.resourceType = binding.has("resourceType") ? binding.get("resourceType").asText() : null;
-            d.upn = binding.has("upn") ? binding.get("upn").asText() : null;
-            d.displayName = binding.has("displayName") ? binding.get("displayName").asText() : null;
+            d.agentId = text(binding, "agentId");
+            d.groupId = text(binding, "groupId");
+            d.groupDisplayName = text(binding, "groupDisplayName");
+            d.groupMail = text(binding, "groupMail");
+            d.groupType = text(binding, "groupType");
             result.add(d);
         }
         return result;
     }
 
     public String getCompositeUid() {
-        return packageId + ":" + resourceId;
-    }
-
-    public String getKind() {
-        if ("user".equalsIgnoreCase(resourceType)) {
-            return "DIRECT";
-        }
-        if ("group".equalsIgnoreCase(resourceType)) {
-            return "GROUP";
-        }
-        return resourceType;
+        return agentId + ":" + groupId;
     }
 
     public String getPrincipalJson() {
         ObjectNode node = MAPPER.createObjectNode();
-        node.put("resourceId", resourceId);
-        node.put("resourceType", resourceType);
-        node.put("upn", upn);
-        node.put("displayName", displayName);
+        node.put("groupId", groupId);
+        node.put("displayName", groupDisplayName);
+        node.put("mail", groupMail);
+        node.put("groupType", groupType);
         return node.toString();
     }
 
@@ -74,17 +64,22 @@ public class CopilotIdentityBindingDescriptor {
         cob.setName(compositeUid);
 
         cob.addAttribute(ATTR_PLATFORM, PLATFORM);
-        cob.addAttribute(ATTR_AGENT_ID, packageId);
+        cob.addAttribute(ATTR_AGENT_ID, agentId);
         cob.addAttribute(ATTR_AGENT_VERSION, "latest");
-        cob.addAttribute(ATTR_KIND, getKind());
+        cob.addAttribute(ATTR_KIND, "GROUP");
         cob.addAttribute(ATTR_PRINCIPAL, getPrincipalJson());
         cob.addAttribute(AttributeBuilder.build(ATTR_PERMISSIONS, Collections.emptyList()));
-        cob.addAttribute(ATTR_SCOPE, "CATALOG");
-        cob.addAttribute(ATTR_SCOPE_RESOURCE_ID, packageId);
+        cob.addAttribute(ATTR_SCOPE, "ENVIRONMENT");
+        cob.addAttribute(ATTR_SCOPE_RESOURCE_ID, agentId);
 
         return cob.build();
     }
 
-    public String getPackageId() { return packageId; }
-    public String getResourceId() { return resourceId; }
+    public String getAgentId() { return agentId; }
+    public String getGroupId() { return groupId; }
+
+    private static String text(JsonNode node, String field) {
+        JsonNode f = node.get(field);
+        return (f != null && !f.isNull()) ? f.asText() : null;
+    }
 }

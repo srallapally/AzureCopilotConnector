@@ -6,10 +6,9 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
-import com.azure.core.credential.TokenRequestContext;
-import com.azure.identity.DefaultAzureCredentialBuilder;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.http.HttpEntity;
@@ -38,17 +37,36 @@ public class M365CopilotClient {
     private static final Log LOG = Log.getLog(M365CopilotClient.class);
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
+    private static final String BOTS_SELECT =
+            "botid,name,statecode,statuscode,accesscontrolpolicy,authorizedsecuritygroupids," +
+                    "authenticationmode,runtimeprovider,language,schemaname,publishedon,createdon,modifiedon," +
+                    "configuration";
+
+    private static final String BOT_COMPONENTS_SELECT =
+            "botcomponentid,name,componenttype,data,_parentbotid_value,schemaname,description,createdon,modifiedon";
+
+    private static final String BOT_COMPONENTS_FILTER =
+            "componenttype eq " + M365CopilotConstants.COMPONENT_TYPE_TOPIC_V2 +
+                    " or componenttype eq " + M365CopilotConstants.COMPONENT_TYPE_KNOWLEDGE_SOURCE;
+
     private final CloseableHttpClient httpClient;
     private final M365CopilotConfiguration cfg;
-    private final String graphBaseUrl;
+    private final String dataverseBaseUrl;
+    private final String tokenScope;
 
     private volatile String cachedToken;
     private volatile long tokenExpiresAt = 0;
     private final Object tokenLock = new Object();
 
+    private volatile List<JsonNode> cachedBots = null;
+    private volatile List<BotComponentDescriptor> cachedBotComponents = null;
+    private volatile JsonNode cachedInventory = null;
+    private final Object cacheLock = new Object();
+
     public M365CopilotClient(M365CopilotConfiguration cfg) {
         this.cfg = cfg;
-        this.graphBaseUrl = M365CopilotConstants.GRAPH_BASE + "/" + cfg.getGraphApiVersion();
+        this.dataverseBaseUrl = cfg.getEnvironmentUrl() + M365CopilotConstants.DATAVERSE_API_PATH;
+        this.tokenScope = cfg.getEnvironmentUrl() + "/.default";
 
         int timeoutMs = cfg.getHttpTimeoutSeconds() * 1000;
         RequestConfig requestConfig = RequestConfig.custom()
@@ -61,35 +79,14 @@ public class M365CopilotClient {
                 .build();
     }
 
+    // --- Token acquisition ---
+
     public String getAccessToken() {
         synchronized (tokenLock) {
             if (cachedToken != null && System.currentTimeMillis() < tokenExpiresAt - 60_000) {
                 return cachedToken;
             }
-
-            if (cfg.isUseManagedIdentity()) {
-                return acquireTokenViaManagedIdentity();
-            } else {
-                return acquireTokenViaClientCredentials();
-            }
-        }
-    }
-
-    private String acquireTokenViaManagedIdentity() {
-        try {
-            TokenRequestContext context = new TokenRequestContext();
-            context.addScopes(M365CopilotConstants.GRAPH_SCOPE);
-
-            com.azure.core.credential.AccessToken azureToken =
-                    new DefaultAzureCredentialBuilder().build()
-                            .getTokenSync(context);
-
-            cachedToken = azureToken.getToken();
-            tokenExpiresAt = azureToken.getExpiresAt().toInstant().toEpochMilli();
-            LOG.ok("Acquired token via managed identity, expires at {0}", azureToken.getExpiresAt());
-            return cachedToken;
-        } catch (Exception e) {
-            throw new InvalidCredentialException("Failed to acquire token via managed identity: " + e.getMessage(), e);
+            return acquireTokenViaClientCredentials();
         }
     }
 
@@ -101,19 +98,17 @@ public class M365CopilotClient {
         params.add(new BasicNameValuePair("grant_type", "client_credentials"));
         params.add(new BasicNameValuePair("client_id", cfg.getClientId()));
         params.add(new BasicNameValuePair("client_secret", SecurityUtil.decrypt(cfg.getClientSecret())));
-        params.add(new BasicNameValuePair("scope", M365CopilotConstants.GRAPH_SCOPE));
+        params.add(new BasicNameValuePair("scope", tokenScope));
 
         try {
             post.setEntity(new UrlEncodedFormEntity(params, StandardCharsets.UTF_8));
             try (CloseableHttpResponse response = httpClient.execute(post)) {
                 int status = response.getStatusLine().getStatusCode();
                 String body = EntityUtils.toString(response.getEntity(), StandardCharsets.UTF_8);
-
                 if (status != 200) {
                     throw new InvalidCredentialException(
                             "Token request failed with HTTP " + status + ": " + body);
                 }
-
                 TokenResponse tokenResponse = TokenResponse.fromJson(MAPPER.readTree(body));
                 cachedToken = tokenResponse.getAccessToken();
                 tokenExpiresAt = System.currentTimeMillis() + (tokenResponse.getExpiresInSeconds() * 1000);
@@ -127,60 +122,83 @@ public class M365CopilotClient {
         }
     }
 
-    public JsonNode graphGet(String path) {
-        String url = graphBaseUrl + path;
-        return executeGet(url);
-    }
+    // --- Cached bulk queries ---
 
-    public List<JsonNode> graphGetAllPages(String path) {
-        List<JsonNode> allItems = new ArrayList<>();
-        String url = graphBaseUrl + path;
-
-        while (url != null) {
-            JsonNode response = executeGet(url);
-            GraphPagedResponse page = GraphPagedResponse.fromJson(response);
-            allItems.addAll(page.getValue());
-
-            if (page.hasNextLink()) {
-                url = page.getNextLink();
-                LOG.ok("Following @odata.nextLink, accumulated {0} items so far", allItems.size());
-            } else {
-                url = null;
+    public List<JsonNode> listAllBots() {
+        synchronized (cacheLock) {
+            if (cachedBots == null) {
+                String path = "/bots?$select=" + BOTS_SELECT + "&$orderby=createdon asc";
+                cachedBots = getAllPages(path);
+                LOG.ok("Loaded {0} bots into cache", cachedBots.size());
             }
+            return cachedBots;
         }
-
-        LOG.ok("Completed pagination, total items: {0}", allItems.size());
-        return allItems;
     }
 
-    public JsonNode graphGetSingle(String path) {
-        return graphGet(path);
-    }
-
-    public JsonNode fetchInventoryJson(String packageId) {
-        if (cfg.getToolsInventoryUrl() != null && !cfg.getToolsInventoryUrl().isEmpty()) {
-            String url = cfg.getToolsInventoryUrl().replace("{id}", packageId);
-            return executeGet(url);
-        }
-
-        if (cfg.getToolsInventoryFilePath() != null && !cfg.getToolsInventoryFilePath().isEmpty()) {
-            try {
-                String content = new String(Files.readAllBytes(
-                        Paths.get(cfg.getToolsInventoryFilePath())), StandardCharsets.UTF_8);
-                return MAPPER.readTree(content);
-            } catch (IOException e) {
-                throw new ConfigurationException(
-                        "Failed to read inventory file: " + cfg.getToolsInventoryFilePath() + " — " + e.getMessage(), e);
+    public List<BotComponentDescriptor> listAllBotComponents() {
+        synchronized (cacheLock) {
+            if (cachedBotComponents == null) {
+                String path = "/botcomponents?$select=" + BOT_COMPONENTS_SELECT +
+                        "&$filter=" + BOT_COMPONENTS_FILTER +
+                        "&$orderby=_parentbotid_value asc,componenttype asc";
+                List<JsonNode> raw = getAllPages(path);
+                List<BotComponentDescriptor> parsed = new ArrayList<>(raw.size());
+                for (JsonNode node : raw) {
+                    parsed.add(BotComponentDescriptor.fromJson(node));
+                }
+                cachedBotComponents = parsed;
+                LOG.ok("Loaded {0} botcomponents into cache", cachedBotComponents.size());
             }
+            return cachedBotComponents;
         }
-
-        return null;
     }
+
+    // --- GET by UID ---
+
+    public JsonNode getBot(String botId) {
+        return dataverseGet("/bots(" + botId + ")?$select=" + BOTS_SELECT);
+    }
+
+    public JsonNode getBotComponent(String botComponentId) {
+        return dataverseGet("/botcomponents(" + botComponentId + ")?$select=" + BOT_COMPONENTS_SELECT);
+    }
+
+    // --- Inventory JSON ---
+
+    public JsonNode fetchInventoryJson() {
+        synchronized (cacheLock) {
+            if (cachedInventory != null) {
+                return cachedInventory;
+            }
+            if (cfg.getToolsInventoryUrl() != null && !cfg.getToolsInventoryUrl().isEmpty()) {
+                cachedInventory = executeGet(cfg.getToolsInventoryUrl());
+                return cachedInventory;
+            }
+            if (cfg.getToolsInventoryFilePath() != null && !cfg.getToolsInventoryFilePath().isEmpty()) {
+                try {
+                    String content = new String(
+                            Files.readAllBytes(Paths.get(cfg.getToolsInventoryFilePath())),
+                            StandardCharsets.UTF_8);
+                    cachedInventory = MAPPER.readTree(content);
+                    return cachedInventory;
+                } catch (IOException e) {
+                    throw new ConfigurationException(
+                            "Failed to read inventory file: " + cfg.getToolsInventoryFilePath() +
+                                    " — " + e.getMessage(), e);
+                }
+            }
+            return null;
+        }
+    }
+
+    // --- Test ---
 
     public void testConnection() {
-        graphGet(M365CopilotConstants.PACKAGES_PATH + "?$top=1");
+        dataverseGet("/bots?$top=1&$select=botid");
         LOG.ok("Test connection successful");
     }
+
+    // --- Lifecycle ---
 
     public void close() {
         try {
@@ -190,10 +208,37 @@ public class M365CopilotClient {
         }
     }
 
+    // --- Internal HTTP ---
+
+    private JsonNode dataverseGet(String path) {
+        return executeGet(dataverseBaseUrl + path);
+    }
+
+    private List<JsonNode> getAllPages(String path) {
+        List<JsonNode> allItems = new ArrayList<>();
+        String url = dataverseBaseUrl + path;
+
+        while (url != null) {
+            JsonNode response = executeGet(url);
+            ODataPagedResponse page = ODataPagedResponse.fromJson(response);
+            allItems.addAll(page.getValue());
+            if (page.hasNextLink()) {
+                url = page.getNextLink();
+                LOG.ok("Following @odata.nextLink, accumulated {0} items so far", allItems.size());
+            } else {
+                url = null;
+            }
+        }
+
+        return allItems;
+    }
+
     private JsonNode executeGet(String url) {
         HttpGet get = new HttpGet(url);
         get.setHeader("Authorization", "Bearer " + getAccessToken());
         get.setHeader("Accept", "application/json");
+        get.setHeader("OData-MaxVersion", "4.0");
+        get.setHeader("OData-Version", "4.0");
         return execute(get);
     }
 

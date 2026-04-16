@@ -8,7 +8,6 @@ import java.util.Set;
 
 import org.forgerock.openicf.connectors.m365copilot.client.M365CopilotClient;
 import org.forgerock.openicf.connectors.m365copilot.operations.M365CopilotCrudService;
-import org.forgerock.openicf.connectors.m365copilot.utils.M365CopilotConstants;
 import org.forgerock.openicf.connectors.m365copilot.utils.M365CopilotFilterTranslator;
 import org.identityconnectors.common.logging.Log;
 import org.identityconnectors.framework.common.exceptions.ConnectorException;
@@ -51,7 +50,7 @@ public class M365CopilotConnector implements
         this.cfg = (M365CopilotConfiguration) configuration;
         this.client = new M365CopilotClient(cfg);
         this.crudService = new M365CopilotCrudService(client, cfg);
-        LOG.ok("M365CopilotConnector initialized for tenant {0}", cfg.getTenantId());
+        LOG.ok("M365CopilotConnector initialized for environment {0}", cfg.getEnvironmentUrl());
     }
 
     @Override
@@ -94,10 +93,12 @@ public class M365CopilotConnector implements
 
         ObjectClassInfo accountOci = buildAccountSchema();
         ObjectClassInfo agentToolOci = buildAgentToolSchema();
+        ObjectClassInfo agentKnowledgeBaseOci = buildAgentKnowledgeBaseSchema();
         ObjectClassInfo agentIdentityBindingOci = buildAgentIdentityBindingSchema();
 
         sb.defineObjectClass(accountOci);
         sb.defineObjectClass(agentToolOci);
+        sb.defineObjectClass(agentKnowledgeBaseOci);
         sb.defineObjectClass(agentIdentityBindingOci);
 
         sb.clearSupportedObjectClassesByOperation();
@@ -109,6 +110,7 @@ public class M365CopilotConnector implements
         for (Class<? extends org.identityconnectors.framework.spi.operations.SPIOperation> op : readOps) {
             sb.addSupportedObjectClass(op, accountOci);
             sb.addSupportedObjectClass(op, agentToolOci);
+            sb.addSupportedObjectClass(op, agentKnowledgeBaseOci);
             sb.addSupportedObjectClass(op, agentIdentityBindingOci);
         }
 
@@ -126,9 +128,11 @@ public class M365CopilotConnector implements
         String ocName = objectClass.getObjectClassValue();
 
         if (ObjectClass.ACCOUNT_NAME.equals(ocName)) {
-            crudService.searchPackages(query, handler, options);
+            crudService.searchAgents(query, handler, options);
         } else if (OC_AGENT_TOOL.equals(ocName)) {
             crudService.searchTools(query, handler, options);
+        } else if (OC_AGENT_KNOWLEDGE_BASE.equals(ocName)) {
+            crudService.searchKnowledgeBases(query, handler, options);
         } else if (OC_AGENT_IDENTITY_BINDING.equals(ocName)) {
             crudService.searchIdentityBindings(query, handler, options);
         } else {
@@ -142,27 +146,24 @@ public class M365CopilotConnector implements
         ObjectClassInfoBuilder ocib = new ObjectClassInfoBuilder();
         ocib.setType(ObjectClass.ACCOUNT_NAME);
 
-        // Standard attributes (returned by default)
         ocib.addAttributeInfo(readOnly(ATTR_PLATFORM, String.class, false));
         ocib.addAttributeInfo(readOnly(ATTR_AGENT_ID, String.class, false));
-        ocib.addAttributeInfo(readOnly(ATTR_DESCRIPTION, String.class, false));
-        ocib.addAttributeInfo(readOnly(ATTR_IS_BLOCKED, Boolean.class, false));
-        ocib.addAttributeInfo(readOnly(ATTR_PACKAGE_TYPE, String.class, false));
-        ocib.addAttributeInfo(readOnly(ATTR_SUPPORTED_HOSTS, String.class, true));
-        ocib.addAttributeInfo(readOnly(ATTR_AVAILABLE_TO, String.class, false));
-        ocib.addAttributeInfo(readOnly(ATTR_DEPLOYED_TO, String.class, false));
-        ocib.addAttributeInfo(readOnly(ATTR_UPDATED_AT, String.class, false));
-
-        // Lazy attributes (not returned by default)
-        ocib.addAttributeInfo(readOnlyLazy(ATTR_VERSION, String.class, false));
-        ocib.addAttributeInfo(readOnlyLazy(ATTR_MANIFEST_VERSION, String.class, false));
-        ocib.addAttributeInfo(readOnlyLazy(ATTR_CATEGORIES, String.class, true));
-        ocib.addAttributeInfo(readOnlyLazy(ATTR_LONG_DESCRIPTION, String.class, false));
-        ocib.addAttributeInfo(readOnlyLazy(ATTR_TOOLS_RAW, String.class, false));
-        ocib.addAttributeInfo(readOnlyLazy(ATTR_TOOL_IDS, String.class, true));
-        ocib.addAttributeInfo(readOnlyLazy(ATTR_OWNER, String.class, false));
-        ocib.addAttributeInfo(readOnlyLazy(ATTR_CREATED_AT, String.class, false));
-        ocib.addAttributeInfo(readOnlyLazy(ATTR_ENTRA_AGENT_OBJECT_ID, String.class, false));
+        ocib.addAttributeInfo(readOnly(ATTR_STATECODE, Integer.class, false));
+        ocib.addAttributeInfo(readOnly(ATTR_STATUSCODE, Integer.class, false));
+        ocib.addAttributeInfo(readOnly(ATTR_ACCESS_CONTROL_POLICY, String.class, false));
+        ocib.addAttributeInfo(readOnly(ATTR_AUTHENTICATION_MODE, String.class, false));
+        ocib.addAttributeInfo(readOnly(ATTR_RUNTIME_PROVIDER, String.class, false));
+        ocib.addAttributeInfo(readOnly(ATTR_LANGUAGE, String.class, false));
+        ocib.addAttributeInfo(readOnly(ATTR_SCHEMA_NAME, String.class, false));
+        ocib.addAttributeInfo(readOnly(ATTR_PUBLISHED_ON, String.class, false));
+        ocib.addAttributeInfo(readOnly(ATTR_CREATED_ON, String.class, false));
+        ocib.addAttributeInfo(readOnly(ATTR_MODIFIED_ON, String.class, false));
+        ocib.addAttributeInfo(readOnly(ATTR_TOOL_IDS, String.class, true));
+        ocib.addAttributeInfo(readOnly(ATTR_KNOWLEDGE_BASE_IDS, String.class, true));
+        ocib.addAttributeInfo(readOnly(ATTR_CONNECTED_AGENTS, String.class, true));
+        ocib.addAttributeInfo(readOnly(ATTR_CONTENT_MODERATION, String.class, false));
+        ocib.addAttributeInfo(readOnly(ATTR_GENERATIVE_ACTIONS_ENABLED, Boolean.class, false));
+        ocib.addAttributeInfo(readOnly(ATTR_USE_MODEL_KNOWLEDGE, Boolean.class, false));
 
         return ocib.build();
     }
@@ -171,11 +172,29 @@ public class M365CopilotConnector implements
         ObjectClassInfoBuilder ocib = new ObjectClassInfoBuilder();
         ocib.setType(OC_AGENT_TOOL);
 
+        ocib.addAttributeInfo(readOnly(ATTR_PLATFORM, String.class, false));
         ocib.addAttributeInfo(readOnly(ATTR_AGENT_ID, String.class, false));
         ocib.addAttributeInfo(readOnly(ATTR_TOOL_TYPE, String.class, false));
+        ocib.addAttributeInfo(readOnly(ATTR_CONNECTION_REFERENCE, String.class, false));
+        ocib.addAttributeInfo(readOnly(ATTR_OPERATION_ID, String.class, false));
         ocib.addAttributeInfo(readOnly(ATTR_DESCRIPTION, String.class, false));
-        ocib.addAttributeInfo(readOnly(ATTR_SCHEMA_URI, String.class, false));
+        ocib.addAttributeInfo(readOnly(ATTR_SCHEMA_NAME, String.class, false));
+        ocib.addAttributeInfo(readOnly(ATTR_CREATED_ON, String.class, false));
+        ocib.addAttributeInfo(readOnly(ATTR_MODIFIED_ON, String.class, false));
+
+        return ocib.build();
+    }
+
+    private ObjectClassInfo buildAgentKnowledgeBaseSchema() {
+        ObjectClassInfoBuilder ocib = new ObjectClassInfoBuilder();
+        ocib.setType(OC_AGENT_KNOWLEDGE_BASE);
+
         ocib.addAttributeInfo(readOnly(ATTR_PLATFORM, String.class, false));
+        ocib.addAttributeInfo(readOnly(ATTR_AGENT_ID, String.class, false));
+        ocib.addAttributeInfo(readOnly(ATTR_SCHEMA_NAME, String.class, false));
+        ocib.addAttributeInfo(readOnly(ATTR_DESCRIPTION, String.class, false));
+        ocib.addAttributeInfo(readOnly(ATTR_CREATED_ON, String.class, false));
+        ocib.addAttributeInfo(readOnly(ATTR_MODIFIED_ON, String.class, false));
 
         return ocib.build();
     }
@@ -203,17 +222,6 @@ public class M365CopilotConnector implements
                 .setMultiValued(multiValued)
                 .setCreateable(false)
                 .setUpdateable(false)
-                .build();
-    }
-
-    private static org.identityconnectors.framework.common.objects.AttributeInfo readOnlyLazy(
-            String name, Class<?> type, boolean multiValued) {
-        return AttributeInfoBuilder.define(name)
-                .setType(type)
-                .setMultiValued(multiValued)
-                .setCreateable(false)
-                .setUpdateable(false)
-                .setReturnedByDefault(false)
                 .build();
     }
 }

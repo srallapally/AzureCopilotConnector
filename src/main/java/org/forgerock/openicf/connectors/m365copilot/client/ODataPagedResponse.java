@@ -1,4 +1,3 @@
-// src/main/java/org/forgerock/openicf/connectors/m365copilot/client/GraphPagedResponse.java
 package org.forgerock.openicf.connectors.m365copilot.client;
 
 import java.util.ArrayList;
@@ -7,12 +6,12 @@ import java.util.List;
 
 import com.fasterxml.jackson.databind.JsonNode;
 
-public final class GraphPagedResponse {
+public final class ODataPagedResponse {
 
     private final List<JsonNode> value;
     private final String nextLink;
 
-    public GraphPagedResponse(List<JsonNode> value, String nextLink) {
+    public ODataPagedResponse(List<JsonNode> value, String nextLink) {
         this.value = value != null ? value : Collections.emptyList();
         this.nextLink = nextLink;
     }
@@ -29,7 +28,7 @@ public final class GraphPagedResponse {
         return nextLink != null && !nextLink.isEmpty();
     }
 
-    public static GraphPagedResponse fromJson(JsonNode root) {
+    public static ODataPagedResponse fromJson(JsonNode root) {
         List<JsonNode> items = new ArrayList<>();
         JsonNode valueNode = root.get("value");
         if (valueNode != null && valueNode.isArray()) {
@@ -42,6 +41,6 @@ public final class GraphPagedResponse {
         if (nextNode != null && !nextNode.isNull()) {
             next = nextNode.asText();
         }
-        return new GraphPagedResponse(items, next);
+        return new ODataPagedResponse(items, next);
     }
 }
