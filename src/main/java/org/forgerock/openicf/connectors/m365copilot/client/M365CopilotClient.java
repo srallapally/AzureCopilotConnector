@@ -13,6 +13,9 @@ import java.util.List;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+// OPENICF-5003 begin
+import org.apache.http.Header;
+// OPENICF-5003 end
 import org.apache.http.HttpEntity;
 import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.entity.UrlEncodedFormEntity;
@@ -51,6 +54,12 @@ public class M365CopilotClient {
     private static final String BOT_COMPONENTS_FILTER =
             "componenttype eq " + M365CopilotConstants.COMPONENT_TYPE_TOPIC_V2 +
                     " or componenttype eq " + M365CopilotConstants.COMPONENT_TYPE_KNOWLEDGE_SOURCE;
+
+    // OPENICF-5003 begin
+    private static final int MAX_ATTEMPTS = 3;                 // 1 initial + 2 retries
+    private static final int DEFAULT_RETRY_AFTER_SECONDS = 5;  // used when header missing/unparseable
+    private static final int MAX_RETRY_AFTER_SECONDS = 60;     // per-wait cap
+    // OPENICF-5003 end
 
     private final CloseableHttpClient httpClient;
     private final M365CopilotConfiguration cfg;
@@ -268,34 +277,85 @@ public class M365CopilotClient {
     }
 
     private JsonNode execute(HttpUriRequest request) {
-        try (CloseableHttpResponse response = httpClient.execute(request)) {
-            int status = response.getStatusLine().getStatusCode();
-            HttpEntity entity = response.getEntity();
-            String body = entity != null ? EntityUtils.toString(entity, StandardCharsets.UTF_8) : "";
+        // OPENICF-5003 begin
+        for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+            try (CloseableHttpResponse response = httpClient.execute(request)) {
+                int status = response.getStatusLine().getStatusCode();
+                HttpEntity entity = response.getEntity();
+                String body = entity != null ? EntityUtils.toString(entity, StandardCharsets.UTF_8) : "";
 
-            if (cfg.isLogPayloads()) {
-                LOG.ok("HTTP {0} {1} -> {2}\n{3}",
-                        request.getMethod(), request.getURI(), status, body);
-            }
+                if (cfg.isLogPayloads()) {
+                    LOG.ok("HTTP {0} {1} -> {2}\n{3}",
+                            request.getMethod(), request.getURI(), status, body);
+                }
 
-            if (status == 404) {
-                throw new UnknownUidException("Resource not found: " + request.getURI());
-            }
-            if (status == 401 || status == 403) {
-                throw new InvalidCredentialException(
-                        "Authentication failed (HTTP " + status + "): " + body);
-            }
-            if (status < 200 || status >= 300) {
-                throw new ConnectorException("HTTP " + status + " from " + request.getURI() + ": " + body);
-            }
+                if (status == 429 || status == 503 || status == 504) {
+                    if (attempt == MAX_ATTEMPTS) {
+                        LOG.warn("HTTP {0} from {1} after {2} attempts — giving up",
+                                status, request.getURI(), attempt);
+                        throw new ConnectorException(
+                                "HTTP " + status + " from " + request.getURI()
+                                        + " after " + attempt + " attempts: " + body);
+                    }
+                    int sleepSeconds = parseRetryAfterSeconds(response);
+                    if (attempt == 1) {
+                        LOG.warn("HTTP {0} from {1} — retrying after {2}s",
+                                status, request.getURI(), sleepSeconds);
+                    }
+                    try {
+                        Thread.sleep(sleepSeconds * 1000L);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        throw new ConnectorException("Retry interrupted for " + request.getURI(), ie);
+                    }
+                    continue;
+                }
 
-            return MAPPER.readTree(body);
-        } catch (ConnectorException e) {
-            throw e;
-        } catch (IOException e) {
-            throw new ConnectorException("HTTP request failed: " + request.getURI() + " — " + e.getMessage(), e);
+                if (status == 404) {
+                    throw new UnknownUidException("Resource not found: " + request.getURI());
+                }
+                if (status == 401 || status == 403) {
+                    throw new InvalidCredentialException(
+                            "Authentication failed (HTTP " + status + "): " + body);
+                }
+                if (status < 200 || status >= 300) {
+                    throw new ConnectorException("HTTP " + status + " from " + request.getURI() + ": " + body);
+                }
+
+                return MAPPER.readTree(body);
+            } catch (ConnectorException e) {
+                throw e;
+            } catch (IOException e) {
+                throw new ConnectorException("HTTP request failed: " + request.getURI() + " — " + e.getMessage(), e);
+            }
+        }
+        // Unreachable: the loop either returns on success or throws on give-up.
+        throw new ConnectorException("Retry loop exited without result for " + request.getURI());
+        // OPENICF-5003 end
+    }
+
+    // OPENICF-5003 begin
+    /**
+     * Reads Retry-After header and returns a sleep duration in seconds, clamped to
+     * [0, MAX_RETRY_AFTER_SECONDS]. Falls back to DEFAULT_RETRY_AFTER_SECONDS when the
+     * header is missing, not an integer (e.g., HTTP-date form), or negative.
+     */
+    private static int parseRetryAfterSeconds(CloseableHttpResponse response) {
+        Header header = response.getFirstHeader("Retry-After");
+        if (header == null || header.getValue() == null) {
+            return DEFAULT_RETRY_AFTER_SECONDS;
+        }
+        try {
+            int seconds = Integer.parseInt(header.getValue().trim());
+            if (seconds < 0) {
+                return DEFAULT_RETRY_AFTER_SECONDS;
+            }
+            return Math.min(seconds, MAX_RETRY_AFTER_SECONDS);
+        } catch (NumberFormatException e) {
+            return DEFAULT_RETRY_AFTER_SECONDS;
         }
     }
+    // OPENICF-5003 end
 
     /**
      * Thin wrapper around URIBuilder for constructing Dataverse API URIs.

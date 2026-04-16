@@ -21,8 +21,10 @@ import org.identityconnectors.framework.common.objects.Schema;
 import org.identityconnectors.framework.common.objects.SchemaBuilder;
 import org.identityconnectors.framework.common.objects.filter.FilterTranslator;
 import org.identityconnectors.framework.spi.Configuration;
+// OPENICF-5004 begin: dropped PoolableConnector — connector is now non-poolable to prevent stale cache reuse across reconciliations
+import org.identityconnectors.framework.spi.Connector;
+// OPENICF-5004 end
 import org.identityconnectors.framework.spi.ConnectorClass;
-import org.identityconnectors.framework.spi.PoolableConnector;
 import org.identityconnectors.framework.spi.operations.SchemaOp;
 import org.identityconnectors.framework.spi.operations.SearchOp;
 import org.identityconnectors.framework.spi.operations.TestOp;
@@ -33,7 +35,9 @@ import static org.forgerock.openicf.connectors.m365copilot.utils.M365CopilotCons
         displayNameKey = "connector.display",
         configurationClass = M365CopilotConfiguration.class)
 public class M365CopilotConnector implements
-        PoolableConnector,
+        // OPENICF-5004 begin: was PoolableConnector; dropped pooling so each reconciliation gets a fresh instance with fresh caches
+        Connector,
+        // OPENICF-5004 end
         SchemaOp,
         TestOp,
         SearchOp<String> {
@@ -62,11 +66,6 @@ public class M365CopilotConnector implements
         cfg = null;
         crudService = null;
         schema = null;
-    }
-
-    @Override
-    public void checkAlive() {
-        // No-op — HTTP connections are stateless
     }
 
     @Override
