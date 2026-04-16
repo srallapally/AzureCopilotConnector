@@ -1,15 +1,27 @@
 // src/main/java/org/forgerock/openicf/connectors/m365copilot/client/BotComponentDescriptor.java
 package org.forgerock.openicf.connectors.m365copilot.client;
 
+import java.util.Collections;
+import java.util.Map;
+
 import com.fasterxml.jackson.databind.JsonNode;
-import org.forgerock.openicf.connectors.m365copilot.utils.M365CopilotConstants;
+import org.identityconnectors.common.logging.Log;
 import org.identityconnectors.framework.common.objects.ConnectorObject;
 import org.identityconnectors.framework.common.objects.ConnectorObjectBuilder;
 import org.identityconnectors.framework.common.objects.ObjectClass;
+// OPENICF-5011 begin
+import org.yaml.snakeyaml.LoaderOptions;
+import org.yaml.snakeyaml.Yaml;
+import org.yaml.snakeyaml.constructor.SafeConstructor;
+// OPENICF-5011 end
 
 import static org.forgerock.openicf.connectors.m365copilot.utils.M365CopilotConstants.*;
 
 public class BotComponentDescriptor {
+
+    // OPENICF-5011 begin
+    private static final Log LOG = Log.getLog(BotComponentDescriptor.class);
+    // OPENICF-5011 end
 
     public enum ComponentKind { TOOL_CONNECTOR, TOOL_MCP, CONNECTED_AGENT, KNOWLEDGE_SOURCE, TOPIC, UNKNOWN }
 
@@ -69,11 +81,14 @@ public class BotComponentDescriptor {
         if (componentType == COMPONENT_TYPE_TOPIC_V2) {
             String data = text(node, "data");
             if (data != null) {
-                dataKind = extractYamlValue(data, "kind:");
-                actionKind = extractActionKind(data);
-                connectionReference = extractYamlValue(data, "connectionReference:");
-                operationId = extractOperationId(data);
-                modelDescription = extractYamlValue(data, "modelDescription:");
+                // OPENICF-5011 begin
+                Map<String, Object> yaml = parseYamlData(data, id);
+                dataKind          = stringVal(yaml, "kind");
+                actionKind        = stringValNested(yaml, "action", "kind");
+                connectionReference = stringVal(yaml, "connectionReference");
+                operationId       = resolveOperationId(yaml);
+                modelDescription  = stringVal(yaml, "modelDescription");
+                // OPENICF-5011 end
             }
         }
 
@@ -144,57 +159,69 @@ public class BotComponentDescriptor {
     public String getParentBotId()    { return parentBotId; }
     public String getSchemaName()     { return schemaName; }
 
-    // --- YAML parsing helpers ---
+    // --- OPENICF-5011 begin: SnakeYAML-based parsing helpers ---
 
     /**
-     * Extracts the value of a top-level YAML scalar key by scanning lines.
-     * Returns the trimmed value after the first occurrence of the key, or null.
+     * Parses the YAML data field using SnakeYAML's SafeConstructor.
+     * Returns the top-level map, or an empty map on any parse failure.
+     * SafeConstructor prevents arbitrary Java object instantiation.
      */
-    static String extractYamlValue(String yaml, String key) {
-        for (String line : yaml.split("\n")) {
-            String trimmed = line.trim();
-            if (trimmed.startsWith(key)) {
-                String value = trimmed.substring(key.length()).trim();
-                return value.isEmpty() ? null : value;
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> parseYamlData(String data, String botComponentId) {
+        try {
+            Yaml yaml = new Yaml(new SafeConstructor(new LoaderOptions()));
+            Object parsed = yaml.load(data);
+            if (parsed instanceof Map) {
+                return (Map<String, Object>) parsed;
             }
+            LOG.warn("YAML data for botcomponent {0} did not parse to a map (got {1}); treating as unclassified",
+                    botComponentId, parsed == null ? "null" : parsed.getClass().getSimpleName());
+            return Collections.emptyMap();
+        } catch (Exception e) {
+            LOG.warn("Failed to parse YAML data for botcomponent {0}: {1}; treating as unclassified",
+                    botComponentId, e.getMessage());
+            return Collections.emptyMap();
+        }
+    }
+
+    /** Returns a top-level string value from the parsed YAML map, or null if absent or not a string. */
+    private static String stringVal(Map<String, Object> map, String key) {
+        Object val = map.get(key);
+        return (val instanceof String) ? (String) val : null;
+    }
+
+    /**
+     * Returns a string value one level deep (parent → child key), or null if either level is
+     * absent, not a map, or the leaf is not a string.
+     */
+    @SuppressWarnings("unchecked")
+    private static String stringValNested(Map<String, Object> map, String parentKey, String childKey) {
+        Object parent = map.get(parentKey);
+        if (!(parent instanceof Map)) {
+            return null;
+        }
+        Object val = ((Map<String, Object>) parent).get(childKey);
+        return (val instanceof String) ? (String) val : null;
+    }
+
+    /**
+     * Resolves operationId: tries top-level "operationId" first, then "operationDetails.operationId".
+     */
+    @SuppressWarnings("unchecked")
+    private static String resolveOperationId(Map<String, Object> map) {
+        String direct = stringVal(map, "operationId");
+        if (direct != null) {
+            return direct;
+        }
+        Object details = map.get("operationDetails");
+        if (details instanceof Map) {
+            Object val = ((Map<String, Object>) details).get("operationId");
+            return (val instanceof String) ? (String) val : null;
         }
         return null;
     }
 
-    /**
-     * Extracts action.kind from the YAML data field.
-     * Looks for an "action:" block and then the first "kind:" line within it.
-     */
-    static String extractActionKind(String yaml) {
-        String[] lines = yaml.split("\n");
-        boolean inAction = false;
-        for (String line : lines) {
-            String trimmed = line.trim();
-            if (trimmed.equals("action:") || trimmed.startsWith("action: ")) {
-                inAction = true;
-                continue;
-            }
-            if (inAction) {
-                if (trimmed.startsWith("kind:")) {
-                    return trimmed.substring("kind:".length()).trim();
-                }
-                // Exit action block if we hit a new top-level key (no leading spaces)
-                if (!line.startsWith(" ") && !line.startsWith("\t") && !trimmed.isEmpty()) {
-                    break;
-                }
-            }
-        }
-        return null;
-    }
-
-    /**
-     * Extracts operationId — tries operationId: first, then operationDetails.operationId:.
-     */
-    static String extractOperationId(String yaml) {
-        String direct = extractYamlValue(yaml, "operationId:");
-        if (direct != null) return direct;
-        return extractYamlValue(yaml, "operationDetails.operationId:");
-    }
+    // --- OPENICF-5011 end ---
 
     private static String text(JsonNode node, String field) {
         JsonNode f = node.get(field);

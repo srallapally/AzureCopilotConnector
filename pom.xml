@@ -10,7 +10,7 @@
     <version>1.5.20.33</version>
     <packaging>bundle</packaging>
 
-    <name>Copilot Studio Connector</name>
+    <n>Copilot Studio Connector</n>
     <description>OpenICF connector for Microsoft Copilot Studio agent governance via Power Platform Dataverse API</description>
 
     <properties>
@@ -23,6 +23,9 @@
         <httpclient.version>4.5.14</httpclient.version>
         <httpcore.version>4.4.16</httpcore.version>
         <jackson.version>2.16.2</jackson.version>
+        <!-- OPENICF-5011 begin -->
+        <snakeyaml.version>2.2</snakeyaml.version>
+        <!-- OPENICF-5011 end -->
 
         <junit.jupiter.version>5.10.2</junit.jupiter.version>
         <mockito.version>5.11.0</mockito.version>
@@ -75,6 +78,15 @@
             <version>${jackson.version}</version>
             <scope>compile</scope>
         </dependency>
+
+        <!-- OPENICF-5011 begin -->
+        <dependency>
+            <groupId>org.yaml</groupId>
+            <artifactId>snakeyaml</artifactId>
+            <version>${snakeyaml.version}</version>
+            <scope>compile</scope>
+        </dependency>
+        <!-- OPENICF-5011 end -->
 
         <dependency>
             <groupId>org.slf4j</groupId>
@@ -134,10 +146,12 @@
                         <Bundle-Version>${project.version}</Bundle-Version>
                         <ConnectorBundle-Version>${project.version}</ConnectorBundle-Version>
 
+                        <!-- OPENICF-5011 begin -->
                         <Embed-Dependency>
                             httpclient,httpcore,jackson-databind,jackson-core,jackson-annotations,
-                            commons-logging,commons-codec
+                            commons-logging,commons-codec,snakeyaml
                         </Embed-Dependency>
+                        <!-- OPENICF-5011 end -->
                         <Embed-Transitive>false</Embed-Transitive>
                         <Embed-Directory>lib</Embed-Directory>
 
