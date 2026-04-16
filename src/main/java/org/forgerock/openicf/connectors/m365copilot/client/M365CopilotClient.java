@@ -2,6 +2,8 @@
 package org.forgerock.openicf.connectors.m365copilot.client;
 
 import java.io.IOException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
@@ -18,6 +20,7 @@ import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.client.methods.HttpUriRequest;
+import org.apache.http.client.utils.URIBuilder;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
 import org.apache.http.message.BasicNameValuePair;
@@ -127,8 +130,11 @@ public class M365CopilotClient {
     public List<JsonNode> listAllBots() {
         synchronized (cacheLock) {
             if (cachedBots == null) {
-                String path = "/bots?$select=" + BOTS_SELECT + "&$orderby=createdon asc";
-                cachedBots = getAllPages(path);
+                URI uri = new URIBuilderWrapper("/bots")
+                        .addParameter("$select", BOTS_SELECT)
+                        .addParameter("$orderby", "createdon asc")
+                        .build();
+                cachedBots = getAllPages(uri);
                 LOG.ok("Loaded {0} bots into cache", cachedBots.size());
             }
             return cachedBots;
@@ -138,10 +144,12 @@ public class M365CopilotClient {
     public List<BotComponentDescriptor> listAllBotComponents() {
         synchronized (cacheLock) {
             if (cachedBotComponents == null) {
-                String path = "/botcomponents?$select=" + BOT_COMPONENTS_SELECT +
-                        "&$filter=" + BOT_COMPONENTS_FILTER +
-                        "&$orderby=_parentbotid_value asc,componenttype asc";
-                List<JsonNode> raw = getAllPages(path);
+                URI uri = new URIBuilderWrapper("/botcomponents")
+                        .addParameter("$select", BOT_COMPONENTS_SELECT)
+                        .addParameter("$filter", BOT_COMPONENTS_FILTER)
+                        .addParameter("$orderby", "_parentbotid_value asc,componenttype asc")
+                        .build();
+                List<JsonNode> raw = getAllPages(uri);
                 List<BotComponentDescriptor> parsed = new ArrayList<>(raw.size());
                 for (JsonNode node : raw) {
                     parsed.add(BotComponentDescriptor.fromJson(node));
@@ -156,11 +164,17 @@ public class M365CopilotClient {
     // --- GET by UID ---
 
     public JsonNode getBot(String botId) {
-        return dataverseGet("/bots(" + botId + ")?$select=" + BOTS_SELECT);
+        URI uri = new URIBuilderWrapper("/bots(" + botId + ")")
+                .addParameter("$select", BOTS_SELECT)
+                .build();
+        return executeGet(uri);
     }
 
     public JsonNode getBotComponent(String botComponentId) {
-        return dataverseGet("/botcomponents(" + botComponentId + ")?$select=" + BOT_COMPONENTS_SELECT);
+        URI uri = new URIBuilderWrapper("/botcomponents(" + botComponentId + ")")
+                .addParameter("$select", BOT_COMPONENTS_SELECT)
+                .build();
+        return executeGet(uri);
     }
 
     // --- Inventory JSON ---
@@ -194,7 +208,11 @@ public class M365CopilotClient {
     // --- Test ---
 
     public void testConnection() {
-        dataverseGet("/bots?$top=1&$select=botid");
+        URI uri = new URIBuilderWrapper("/bots")
+                .addParameter("$top", "1")
+                .addParameter("$select", "botid")
+                .build();
+        executeGet(uri);
         LOG.ok("Test connection successful");
     }
 
@@ -210,31 +228,38 @@ public class M365CopilotClient {
 
     // --- Internal HTTP ---
 
-    private JsonNode dataverseGet(String path) {
-        return executeGet(dataverseBaseUrl + path);
-    }
-
-    private List<JsonNode> getAllPages(String path) {
+    private List<JsonNode> getAllPages(URI initialUri) {
         List<JsonNode> allItems = new ArrayList<>();
-        String url = dataverseBaseUrl + path;
 
-        while (url != null) {
-            JsonNode response = executeGet(url);
-            ODataPagedResponse page = ODataPagedResponse.fromJson(response);
+        // First page uses the URI we built; subsequent pages follow @odata.nextLink
+        // as opaque, already-encoded strings returned by the server.
+        JsonNode response = executeGet(initialUri);
+        ODataPagedResponse page = ODataPagedResponse.fromJson(response);
+        allItems.addAll(page.getValue());
+
+        String nextUrl = page.hasNextLink() ? page.getNextLink() : null;
+        while (nextUrl != null) {
+            LOG.ok("Following @odata.nextLink, accumulated {0} items so far", allItems.size());
+            response = executeGet(nextUrl);
+            page = ODataPagedResponse.fromJson(response);
             allItems.addAll(page.getValue());
-            if (page.hasNextLink()) {
-                url = page.getNextLink();
-                LOG.ok("Following @odata.nextLink, accumulated {0} items so far", allItems.size());
-            } else {
-                url = null;
-            }
+            nextUrl = page.hasNextLink() ? page.getNextLink() : null;
         }
 
         return allItems;
     }
 
+    private JsonNode executeGet(URI uri) {
+        HttpGet get = new HttpGet(uri);
+        return sendWithDataverseHeaders(get);
+    }
+
     private JsonNode executeGet(String url) {
         HttpGet get = new HttpGet(url);
+        return sendWithDataverseHeaders(get);
+    }
+
+    private JsonNode sendWithDataverseHeaders(HttpGet get) {
         get.setHeader("Authorization", "Bearer " + getAccessToken());
         get.setHeader("Accept", "application/json");
         get.setHeader("OData-MaxVersion", "4.0");
@@ -269,6 +294,38 @@ public class M365CopilotClient {
             throw e;
         } catch (IOException e) {
             throw new ConnectorException("HTTP request failed: " + request.getURI() + " — " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Thin wrapper around URIBuilder for constructing Dataverse API URIs.
+     * Parses the base URL + relative path verbatim (preserving the "(id)" parenthesized
+     * key syntax used by OData) and allows adding query parameters that are properly
+     * percent-encoded by URIBuilder.
+     */
+    private final class URIBuilderWrapper {
+        private final URIBuilder builder;
+
+        URIBuilderWrapper(String relativePath) {
+            try {
+                this.builder = new URIBuilder(dataverseBaseUrl + relativePath);
+            } catch (URISyntaxException e) {
+                throw new ConnectorException(
+                        "Failed to construct URI for path: " + relativePath + " — " + e.getMessage(), e);
+            }
+        }
+
+        URIBuilderWrapper addParameter(String name, String value) {
+            builder.addParameter(name, value);
+            return this;
+        }
+
+        URI build() {
+            try {
+                return builder.build();
+            } catch (URISyntaxException e) {
+                throw new ConnectorException("Failed to build URI: " + e.getMessage(), e);
+            }
         }
     }
 }

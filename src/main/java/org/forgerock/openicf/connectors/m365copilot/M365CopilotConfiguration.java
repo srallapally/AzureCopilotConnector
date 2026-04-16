@@ -20,7 +20,8 @@ public class M365CopilotConfiguration extends AbstractConfiguration implements S
     private String environmentUrl;
     private String clientId;
     private GuardedString clientSecret;
-    private boolean useManagedIdentity = false;
+    // OPENICF-5001 begin: removed useManagedIdentity field — managed identity is not implemented; only client credentials are supported
+    // OPENICF-5001 end
     private String toolsInventoryUrl;
     private String toolsInventoryFilePath;
     private int httpTimeoutSeconds = 30;
@@ -53,11 +54,8 @@ public class M365CopilotConfiguration extends AbstractConfiguration implements S
     public GuardedString getClientSecret() { return clientSecret; }
     public void setClientSecret(GuardedString clientSecret) { this.clientSecret = clientSecret; }
 
-    @ConfigurationProperty(order = 5,
-            displayMessageKey = "useManagedIdentity.display",
-            helpMessageKey = "useManagedIdentity.help")
-    public boolean isUseManagedIdentity() { return useManagedIdentity; }
-    public void setUseManagedIdentity(boolean useManagedIdentity) { this.useManagedIdentity = useManagedIdentity; }
+    // OPENICF-5001 begin: removed useManagedIdentity @ConfigurationProperty, getter, and setter — property deleted (managed identity not implemented)
+    // OPENICF-5001 end
 
     @ConfigurationProperty(order = 6,
             displayMessageKey = "toolsInventoryUrl.display",
@@ -96,14 +94,14 @@ public class M365CopilotConfiguration extends AbstractConfiguration implements S
         if (StringUtil.isBlank(environmentUrl)) {
             missing.add("environmentUrl");
         }
-        if (!useManagedIdentity) {
-            if (StringUtil.isBlank(clientId)) {
-                missing.add("clientId");
-            }
-            if (clientSecret == null) {
-                missing.add("clientSecret");
-            }
+        // OPENICF-5001 begin: clientId and clientSecret are now unconditionally required (useManagedIdentity removed)
+        if (StringUtil.isBlank(clientId)) {
+            missing.add("clientId");
         }
+        if (clientSecret == null) {
+            missing.add("clientSecret");
+        }
+        // OPENICF-5001 end
         if (!missing.isEmpty()) {
             throw new ConfigurationException("Missing required configuration: " + String.join(", ", missing));
         }
