@@ -2,7 +2,9 @@
 package org.forgerock.openicf.connectors.m365copilot.client;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -69,14 +71,12 @@ public class BotDescriptor {
             statuscode = node.get("statuscode").asInt();
         }
 
-        // accesscontrolpolicy is an OptionSet integer — convert to label
         String accessControlPolicy = null;
         if (node.has("accesscontrolpolicy") && !node.get("accesscontrolpolicy").isNull()) {
             int policy = node.get("accesscontrolpolicy").asInt(-1);
             accessControlPolicy = accessControlPolicyLabel(policy);
         }
 
-        // Parse configuration blob for AI settings
         String contentModeration = null;
         Boolean generativeActionsEnabled = null;
         Boolean useModelKnowledge = null;
@@ -117,11 +117,62 @@ public class BotDescriptor {
         );
     }
 
+    // OPENICF-5010 begin
     /**
-     * Builds the ConnectorObject, deriving relationship attributes from the provided
-     * list of all BotComponentDescriptors for this bot's environment.
+     * Builds a schemaname → botid index from the raw bot node list.
+     * Used by callers to resolve connected-agent target schema names to botids.
      */
-    public ConnectorObject toConnectorObject(List<BotComponentDescriptor> allComponents) {
+    public static Map<String, String> buildSchemaNameIndex(List<JsonNode> botNodes) {
+        Map<String, String> index = new HashMap<>(botNodes.size() * 2);
+        for (JsonNode node : botNodes) {
+            String sn = text(node, "schemaname");
+            String id = text(node, "botid");
+            if (sn != null && id != null) {
+                index.put(sn, id);
+            }
+        }
+        return index;
+    }
+    // OPENICF-5010 end
+
+    // OPENICF-INV-001 begin
+    /**
+     * Builds a botId → agent inventory node index from the inventory JSON agents[] array.
+     * Returns an empty map when the inventory root is null or contains no agents array.
+     */
+    public static Map<String, JsonNode> buildAgentInventoryIndex(JsonNode inventoryRoot) {
+        Map<String, JsonNode> index = new HashMap<>();
+        if (inventoryRoot == null) {
+            return index;
+        }
+        JsonNode agents = inventoryRoot.get("agents");
+        if (agents == null || !agents.isArray()) {
+            return index;
+        }
+        for (JsonNode agent : agents) {
+            String botId = text(agent, "botId");
+            if (botId != null) {
+                index.put(botId, agent);
+            }
+        }
+        return index;
+    }
+    // OPENICF-INV-001 end
+
+    // OPENICF-5010 begin: added botSchemaNameIndex parameter for connected-agent target resolution
+    // OPENICF-INV-001 begin: added agentInventory parameter for owner and connection attributes
+    /**
+     * Builds the ConnectorObject.
+     *
+     * @param allComponents      all BotComponentDescriptors for this bot's environment
+     * @param botSchemaNameIndex schemaname → botid index for connected-agent resolution
+     * @param agentInventory     inventory JSON node for this bot (may be null)
+     */
+    public ConnectorObject toConnectorObject(List<BotComponentDescriptor> allComponents,
+                                             Map<String, String> botSchemaNameIndex,
+                                             JsonNode agentInventory) {
+        // OPENICF-5010 end
+        // OPENICF-INV-001 end
         ConnectorObjectBuilder cob = new ConnectorObjectBuilder();
         cob.setObjectClass(ObjectClass.ACCOUNT);
         cob.setUid(botId);
@@ -144,12 +195,38 @@ public class BotDescriptor {
         if (generativeActionsEnabled != null) cob.addAttribute(ATTR_GENERATIVE_ACTIONS_ENABLED, generativeActionsEnabled);
         if (useModelKnowledge != null)        cob.addAttribute(ATTR_USE_MODEL_KNOWLEDGE, useModelKnowledge);
 
+        // OPENICF-INV-001 begin: owner and connection attributes from inventory
+        if (agentInventory != null) {
+            addTextAttr(cob, ATTR_OWNER_PRINCIPAL_ID,        agentInventory, "ownerPrincipalId");
+            addTextAttr(cob, ATTR_OWNER_DISPLAY_NAME,        agentInventory, "ownerDisplayName");
+            addTextAttr(cob, ATTR_OWNER_USER_PRINCIPAL_NAME, agentInventory, "ownerUserPrincipalName");
+            addTextAttr(cob, ATTR_OWNER_MAIL,                agentInventory, "ownerMail");
+            addTextAttr(cob, ATTR_OWNER_PRINCIPAL_TYPE,      agentInventory, "ownerPrincipalType");
+
+            addTextAttr(cob, ATTR_CONNECTION_REFERENCE_ID,                 agentInventory, "connectionReferenceId");
+            addTextAttr(cob, ATTR_CONNECTION_REFERENCE_DISPLAY_NAME,       agentInventory, "connectionReferenceDisplayName");
+            addTextAttr(cob, ATTR_CONNECTION_REFERENCE_LOGICAL_NAME,       agentInventory, "connectionReferenceLogicalName");
+            addTextAttr(cob, ATTR_CONNECTOR_ID,                            agentInventory, "connectorId");
+            addTextAttr(cob, ATTR_CONNECTION_ID,                           agentInventory, "connectionId");
+            addTextAttr(cob, ATTR_CONNECTION_REFERENCE_AUTH_INFERRED_TYPE, agentInventory, "connectionReferenceAuthInferredType");
+            addTextAttr(cob, ATTR_CONNECTION_INSTANCE_AUTH_INFERRED_TYPE,  agentInventory, "connectionInstanceAuthInferredType");
+
+            addIntAttr(cob, ATTR_CONNECTION_REFERENCE_STATE_CODE,  agentInventory, "connectionReferenceStateCode");
+            addIntAttr(cob, ATTR_CONNECTION_REFERENCE_STATUS_CODE, agentInventory, "connectionReferenceStatusCode");
+            addIntAttr(cob, ATTR_CONNECTION_INSTANCE_COUNT,        agentInventory, "connectionInstanceCount");
+        }
+        // OPENICF-INV-001 end
+
         // Derive relationship attributes from child components
         List<String> toolIds = new ArrayList<>();
         List<String> knowledgeBaseIds = new ArrayList<>();
-        // OPENICF-5007 begin: renamed local from connectedAgents to connectedAgentReferences to match constant rename
+        // OPENICF-5007 begin
         List<String> connectedAgentReferences = new ArrayList<>();
         // OPENICF-5007 end
+        // OPENICF-5010 begin
+        List<String> connectedAgentTargetSchemaNames = new ArrayList<>();
+        List<String> connectedAgentTargetBotIds = new ArrayList<>();
+        // OPENICF-5010 end
 
         for (BotComponentDescriptor comp : allComponents) {
             if (!botId.equals(comp.getParentBotId())) continue;
@@ -162,11 +239,21 @@ public class BotDescriptor {
                     knowledgeBaseIds.add(comp.getBotComponentId());
                     break;
                 case CONNECTED_AGENT:
+                    // OPENICF-5007 begin
                     if (comp.getSchemaName() != null) {
-                        // OPENICF-5007 begin
                         connectedAgentReferences.add(comp.getSchemaName());
-                        // OPENICF-5007 end
                     }
+                    // OPENICF-5007 end
+                    // OPENICF-5010 begin
+                    String targetSn = comp.getTargetBotSchemaName();
+                    if (targetSn != null) {
+                        connectedAgentTargetSchemaNames.add(targetSn);
+                        String resolvedBotId = botSchemaNameIndex.get(targetSn);
+                        if (resolvedBotId != null) {
+                            connectedAgentTargetBotIds.add(resolvedBotId);
+                        }
+                    }
+                    // OPENICF-5010 end
                     break;
                 default:
                     break;
@@ -178,6 +265,10 @@ public class BotDescriptor {
         // OPENICF-5007 begin
         cob.addAttribute(AttributeBuilder.build(ATTR_CONNECTED_AGENT_REFERENCES, connectedAgentReferences));
         // OPENICF-5007 end
+        // OPENICF-5010 begin
+        cob.addAttribute(AttributeBuilder.build(ATTR_CONNECTED_AGENT_TARGET_SCHEMA_NAME, connectedAgentTargetSchemaNames));
+        cob.addAttribute(AttributeBuilder.build(ATTR_CONNECTED_AGENT_TARGET_BOT_ID, connectedAgentTargetBotIds));
+        // OPENICF-5010 end
 
         return cob.build();
     }
@@ -185,9 +276,26 @@ public class BotDescriptor {
     public String getBotId() { return botId; }
 
     // OPENICF-5013 begin
-    /** True when this agent has ever been published (publishedon is non-null). */
     public boolean isPublished() { return publishedOn != null; }
     // OPENICF-5013 end
+
+    // OPENICF-INV-001 begin
+    private static void addTextAttr(ConnectorObjectBuilder cob, String attrName,
+                                    JsonNode node, String field) {
+        String value = text(node, field);
+        if (value != null) {
+            cob.addAttribute(attrName, value);
+        }
+    }
+
+    private static void addIntAttr(ConnectorObjectBuilder cob, String attrName,
+                                   JsonNode node, String field) {
+        JsonNode f = node.get(field);
+        if (f != null && !f.isNull() && f.isNumber()) {
+            cob.addAttribute(attrName, f.asInt());
+        }
+    }
+    // OPENICF-INV-001 end
 
     private static String accessControlPolicyLabel(int value) {
         switch (value) {

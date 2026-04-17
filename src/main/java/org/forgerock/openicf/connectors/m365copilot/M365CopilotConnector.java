@@ -159,12 +159,37 @@ public class M365CopilotConnector implements
         ocib.addAttributeInfo(readOnly(ATTR_MODIFIED_ON, String.class, false));
         ocib.addAttributeInfo(readOnly(ATTR_TOOL_IDS, String.class, true));
         ocib.addAttributeInfo(readOnly(ATTR_KNOWLEDGE_BASE_IDS, String.class, true));
-        // OPENICF-5007 begin: renamed schema attribute from connectedAgents to connectedAgentReferences
+        // OPENICF-5007 begin
         ocib.addAttributeInfo(readOnly(ATTR_CONNECTED_AGENT_REFERENCES, String.class, true));
         // OPENICF-5007 end
+        // OPENICF-5010 begin
+        ocib.addAttributeInfo(readOnly(ATTR_CONNECTED_AGENT_TARGET_SCHEMA_NAME, String.class, true));
+        ocib.addAttributeInfo(readOnly(ATTR_CONNECTED_AGENT_TARGET_BOT_ID, String.class, true));
+        // OPENICF-5010 end
         ocib.addAttributeInfo(readOnly(ATTR_CONTENT_MODERATION, String.class, false));
         ocib.addAttributeInfo(readOnly(ATTR_GENERATIVE_ACTIONS_ENABLED, Boolean.class, false));
         ocib.addAttributeInfo(readOnly(ATTR_USE_MODEL_KNOWLEDGE, Boolean.class, false));
+
+        // OPENICF-INV-001 begin: owner attributes
+        ocib.addAttributeInfo(readOnly(ATTR_OWNER_PRINCIPAL_ID,        String.class, false));
+        ocib.addAttributeInfo(readOnly(ATTR_OWNER_DISPLAY_NAME,        String.class, false));
+        ocib.addAttributeInfo(readOnly(ATTR_OWNER_USER_PRINCIPAL_NAME, String.class, false));
+        ocib.addAttributeInfo(readOnly(ATTR_OWNER_MAIL,                String.class, false));
+        ocib.addAttributeInfo(readOnly(ATTR_OWNER_PRINCIPAL_TYPE,      String.class, false));
+        // OPENICF-INV-001 end
+
+        // OPENICF-INV-001 begin: connection reference attributes
+        ocib.addAttributeInfo(readOnly(ATTR_CONNECTION_REFERENCE_ID,                  String.class,  false));
+        ocib.addAttributeInfo(readOnly(ATTR_CONNECTION_REFERENCE_DISPLAY_NAME,        String.class,  false));
+        ocib.addAttributeInfo(readOnly(ATTR_CONNECTION_REFERENCE_LOGICAL_NAME,        String.class,  false));
+        ocib.addAttributeInfo(readOnly(ATTR_CONNECTOR_ID,                             String.class,  false));
+        ocib.addAttributeInfo(readOnly(ATTR_CONNECTION_ID,                            String.class,  false));
+        ocib.addAttributeInfo(readOnly(ATTR_CONNECTION_REFERENCE_STATE_CODE,          Integer.class, false));
+        ocib.addAttributeInfo(readOnly(ATTR_CONNECTION_REFERENCE_STATUS_CODE,         Integer.class, false));
+        ocib.addAttributeInfo(readOnly(ATTR_CONNECTION_REFERENCE_AUTH_INFERRED_TYPE,  String.class,  false));
+        ocib.addAttributeInfo(readOnly(ATTR_CONNECTION_INSTANCE_COUNT,                Integer.class, false));
+        ocib.addAttributeInfo(readOnly(ATTR_CONNECTION_INSTANCE_AUTH_INFERRED_TYPE,   String.class,  false));
+        // OPENICF-INV-001 end
 
         return ocib.build();
     }

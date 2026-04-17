@@ -1,7 +1,9 @@
 // src/main/java/org/forgerock/openicf/connectors/m365copilot/operations/M365CopilotCrudService.java
 package org.forgerock.openicf.connectors.m365copilot.operations;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -15,6 +17,10 @@ import org.identityconnectors.framework.common.exceptions.ConnectorException;
 import org.identityconnectors.framework.common.exceptions.UnknownUidException;
 import org.identityconnectors.framework.common.objects.OperationOptions;
 import org.identityconnectors.framework.common.objects.ResultsHandler;
+// OPENICF-5008 begin
+import org.identityconnectors.framework.common.objects.SearchResult;
+import org.identityconnectors.framework.spi.SearchResultsHandler;
+// OPENICF-5008 end
 
 public class M365CopilotCrudService {
 
@@ -34,7 +40,7 @@ public class M365CopilotCrudService {
         if (query != null && !query.isEmpty()) {
             searchAgentByUid(query, handler);
         } else {
-            searchAllAgents(handler);
+            searchAllAgents(handler, options);
         }
     }
 
@@ -51,27 +57,63 @@ public class M365CopilotCrudService {
         List<BotComponentDescriptor> components = client.listAllBotComponents().stream()
                 .filter(c -> botId.equals(c.getParentBotId()))
                 .collect(Collectors.toList());
-        handler.handle(bot.toConnectorObject(components));
+        // OPENICF-5010 begin
+        Map<String, String> botSchemaNameIndex = BotDescriptor.buildSchemaNameIndex(client.listAllBots());
+        // OPENICF-5010 end
+        // OPENICF-INV-001 begin
+        JsonNode inventory = client.fetchInventoryJson();
+        Map<String, JsonNode> agentInventoryIndex = BotDescriptor.buildAgentInventoryIndex(inventory);
+        JsonNode agentInventory = agentInventoryIndex.get(botId);
+        handler.handle(bot.toConnectorObject(components, botSchemaNameIndex, agentInventory));
+        // OPENICF-INV-001 end
     }
 
-    private void searchAllAgents(ResultsHandler handler) {
+    private void searchAllAgents(ResultsHandler handler, OperationOptions options) {
         LOG.ok("Searching all agents");
         List<JsonNode> botNodes = client.listAllBots();
         List<BotComponentDescriptor> allComponents = client.listAllBotComponents();
-        LOG.ok("Retrieved {0} bots, {1} botcomponents", botNodes.size(), allComponents.size());
+        // OPENICF-5010 begin
+        Map<String, String> botSchemaNameIndex = BotDescriptor.buildSchemaNameIndex(botNodes);
+        // OPENICF-5010 end
+        // OPENICF-INV-001 begin
+        JsonNode inventory = client.fetchInventoryJson();
+        Map<String, JsonNode> agentInventoryIndex = BotDescriptor.buildAgentInventoryIndex(inventory);
+        // OPENICF-INV-001 end
 
+        // OPENICF-5008 begin: pre-filter to a candidate list so the page window is applied
+        // over the set IDM will actually see, not the raw Dataverse set
+        List<JsonNode> candidates = new ArrayList<>(botNodes.size());
         for (JsonNode node : botNodes) {
-            BotDescriptor bot = BotDescriptor.fromJson(node);
-            // OPENICF-5013 begin
-            if (!cfg.isIncludeUnpublishedAgents() && !bot.isPublished()) {
+            if (!cfg.isIncludeUnpublishedAgents() && !BotDescriptor.fromJson(node).isPublished()) {
                 continue;
             }
-            // OPENICF-5013 end
-            if (!handler.handle(bot.toConnectorObject(allComponents))) {
+            candidates.add(node);
+        }
+        LOG.ok("Retrieved {0} bots ({1} published candidates), {2} botcomponents",
+                botNodes.size(), candidates.size(), allComponents.size());
+
+        int pageSize = pageSize(options);
+        int offset   = pageOffset(options);
+
+        List<JsonNode> page = pageSize > 0
+                ? candidates.subList(offset, Math.min(offset + pageSize, candidates.size()))
+                : candidates;
+
+        for (JsonNode node : page) {
+            BotDescriptor bot = BotDescriptor.fromJson(node);
+            // OPENICF-INV-001 begin
+            JsonNode agentInventory = agentInventoryIndex.get(bot.getBotId());
+            if (!handler.handle(bot.toConnectorObject(allComponents, botSchemaNameIndex, agentInventory))) {
+                // OPENICF-INV-001 end
                 LOG.ok("Handler returned false, stopping iteration");
                 return;
             }
         }
+
+        if (pageSize > 0) {
+            emitSearchResult(handler, offset, pageSize, candidates.size());
+        }
+        // OPENICF-5008 end
     }
 
     // --- agentTool ---
@@ -80,7 +122,7 @@ public class M365CopilotCrudService {
         if (query != null && !query.isEmpty()) {
             searchToolByUid(query, handler);
         } else {
-            searchAllTools(handler);
+            searchAllTools(handler, options);
         }
     }
 
@@ -96,18 +138,35 @@ public class M365CopilotCrudService {
         handler.handle(comp.toAgentToolConnectorObject());
     }
 
-    private void searchAllTools(ResultsHandler handler) {
+    private void searchAllTools(ResultsHandler handler, OperationOptions options) {
         LOG.ok("Searching all tools");
+        // OPENICF-5008 begin
+        List<BotComponentDescriptor> candidates = new ArrayList<>();
         for (BotComponentDescriptor comp : client.listAllBotComponents()) {
             BotComponentDescriptor.ComponentKind kind = comp.getComponentKind();
-            if (kind != BotComponentDescriptor.ComponentKind.TOOL_CONNECTOR
-                    && kind != BotComponentDescriptor.ComponentKind.TOOL_MCP) {
-                continue;
+            if (kind == BotComponentDescriptor.ComponentKind.TOOL_CONNECTOR
+                    || kind == BotComponentDescriptor.ComponentKind.TOOL_MCP) {
+                candidates.add(comp);
             }
+        }
+
+        int pageSize = pageSize(options);
+        int offset   = pageOffset(options);
+
+        List<BotComponentDescriptor> page = pageSize > 0
+                ? candidates.subList(offset, Math.min(offset + pageSize, candidates.size()))
+                : candidates;
+
+        for (BotComponentDescriptor comp : page) {
             if (!handler.handle(comp.toAgentToolConnectorObject())) {
                 return;
             }
         }
+
+        if (pageSize > 0) {
+            emitSearchResult(handler, offset, pageSize, candidates.size());
+        }
+        // OPENICF-5008 end
     }
 
     // --- agentKnowledgeBase ---
@@ -116,7 +175,7 @@ public class M365CopilotCrudService {
         if (query != null && !query.isEmpty()) {
             searchKnowledgeBaseByUid(query, handler);
         } else {
-            searchAllKnowledgeBases(handler);
+            searchAllKnowledgeBases(handler, options);
         }
     }
 
@@ -130,22 +189,39 @@ public class M365CopilotCrudService {
         handler.handle(comp.toKnowledgeBaseConnectorObject());
     }
 
-    private void searchAllKnowledgeBases(ResultsHandler handler) {
+    private void searchAllKnowledgeBases(ResultsHandler handler, OperationOptions options) {
         LOG.ok("Searching all knowledge bases");
+        // OPENICF-5008 begin
+        List<BotComponentDescriptor> candidates = new ArrayList<>();
         for (BotComponentDescriptor comp : client.listAllBotComponents()) {
-            if (comp.getComponentKind() != BotComponentDescriptor.ComponentKind.KNOWLEDGE_SOURCE) {
-                continue;
+            if (comp.getComponentKind() == BotComponentDescriptor.ComponentKind.KNOWLEDGE_SOURCE) {
+                candidates.add(comp);
             }
+        }
+
+        int pageSize = pageSize(options);
+        int offset   = pageOffset(options);
+
+        List<BotComponentDescriptor> page = pageSize > 0
+                ? candidates.subList(offset, Math.min(offset + pageSize, candidates.size()))
+                : candidates;
+
+        for (BotComponentDescriptor comp : page) {
             if (!handler.handle(comp.toKnowledgeBaseConnectorObject())) {
                 return;
             }
         }
+
+        if (pageSize > 0) {
+            emitSearchResult(handler, offset, pageSize, candidates.size());
+        }
+        // OPENICF-5008 end
     }
 
     // --- agentIdentityBinding ---
 
     public void searchIdentityBindings(String query, ResultsHandler handler, OperationOptions options) {
-        // OPENICF-5005 begin: gate on identityBindingScanEnabled; OPENICF-5002: WARN when enabled but inventory missing
+        // OPENICF-5005 begin
         if (!cfg.isIdentityBindingScanEnabled()) {
             LOG.ok("identityBindingScanEnabled=false; skipping agentIdentityBinding search");
             if (query != null && !query.isEmpty()) {
@@ -162,12 +238,11 @@ public class M365CopilotCrudService {
             }
             return;
         }
-        // OPENICF-5002 end
         // OPENICF-5005 end
         if (query != null && !query.isEmpty()) {
             searchIdentityBindingByUid(query, handler);
         } else {
-            searchAllIdentityBindings(handler);
+            searchAllIdentityBindings(handler, options);
         }
     }
 
@@ -196,19 +271,66 @@ public class M365CopilotCrudService {
         throw new UnknownUidException("Identity binding not found: " + compositeUid);
     }
 
-    private void searchAllIdentityBindings(ResultsHandler handler) {
+    private void searchAllIdentityBindings(ResultsHandler handler, OperationOptions options) {
         LOG.ok("Searching all identity bindings");
         JsonNode inventory = client.fetchInventoryJson();
         if (inventory == null) {
             LOG.ok("Inventory is null, returning empty results");
             return;
         }
-        for (CopilotIdentityBindingDescriptor binding : CopilotIdentityBindingDescriptor.fromInventoryJson(inventory)) {
+        // OPENICF-5008 begin
+        List<CopilotIdentityBindingDescriptor> candidates =
+                CopilotIdentityBindingDescriptor.fromInventoryJson(inventory);
+
+        int pageSize = pageSize(options);
+        int offset   = pageOffset(options);
+
+        List<CopilotIdentityBindingDescriptor> page = pageSize > 0
+                ? candidates.subList(offset, Math.min(offset + pageSize, candidates.size()))
+                : candidates;
+
+        for (CopilotIdentityBindingDescriptor binding : page) {
             if (!handler.handle(binding.toConnectorObject())) {
                 return;
             }
         }
+
+        if (pageSize > 0) {
+            emitSearchResult(handler, offset, pageSize, candidates.size());
+        }
+        // OPENICF-5008 end
     }
+
+    // --- OPENICF-5008 begin: paging helpers ---
+
+    private static int pageSize(OperationOptions options) {
+        if (options == null) return 0;
+        Integer ps = options.getPageSize();
+        return (ps != null && ps > 0) ? ps : 0;
+    }
+
+    private static int pageOffset(OperationOptions options) {
+        if (options == null) return 0;
+        String cookie = options.getPagedResultsCookie();
+        if (cookie == null || cookie.isEmpty()) return 0;
+        try {
+            int offset = Integer.parseInt(cookie);
+            return Math.max(0, offset);
+        } catch (NumberFormatException e) {
+            LOG.warn("Unparseable pagedResultsCookie ''{0}''; starting from offset 0", cookie);
+            return 0;
+        }
+    }
+
+    private static void emitSearchResult(ResultsHandler handler, int offset, int pageSize, int total) {
+        if (!(handler instanceof SearchResultsHandler)) return;
+        int nextOffset = offset + pageSize;
+        String nextCookie = nextOffset < total ? String.valueOf(nextOffset) : null;
+        int remaining = Math.max(0, total - nextOffset);
+        ((SearchResultsHandler) handler).handleResult(new SearchResult(nextCookie, remaining));
+    }
+
+    // --- OPENICF-5008 end ---
 
     private boolean hasInventorySource() {
         return (cfg.getToolsInventoryUrl() != null && !cfg.getToolsInventoryUrl().isEmpty())

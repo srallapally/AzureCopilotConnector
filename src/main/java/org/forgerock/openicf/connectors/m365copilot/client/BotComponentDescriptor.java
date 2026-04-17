@@ -2,6 +2,7 @@
 package org.forgerock.openicf.connectors.m365copilot.client;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -40,13 +41,20 @@ public class BotComponentDescriptor {
     private final String connectionReference;
     private final String operationId;
     private final String modelDescription;
+    // OPENICF-5010 begin
+    private final String targetBotSchemaName;
+    // OPENICF-5010 end
 
     private BotComponentDescriptor(String botComponentId, String name, int componentType,
                                    String parentBotId, String schemaName, String description,
                                    String createdOn, String modifiedOn,
                                    String dataKind, String actionKind,
                                    String connectionReference, String operationId,
-                                   String modelDescription) {
+                                   String modelDescription,
+                                   // OPENICF-5010 begin
+                                   String targetBotSchemaName
+                                   // OPENICF-5010 end
+    ) {
         this.botComponentId = botComponentId;
         this.name = name;
         this.componentType = componentType;
@@ -60,9 +68,15 @@ public class BotComponentDescriptor {
         this.connectionReference = connectionReference;
         this.operationId = operationId;
         this.modelDescription = modelDescription;
+        // OPENICF-5010 begin
+        this.targetBotSchemaName = targetBotSchemaName;
+        // OPENICF-5010 end
     }
 
     public static BotComponentDescriptor fromJson(JsonNode node) {
+        // OPENICF-5014 begin
+        LOG.ok("BotComponentDescriptor.fromJson: {0}", node);
+        // OPENICF-5014 end
         String id = text(node, "botcomponentid");
         String name = text(node, "name");
         int componentType = node.has("componenttype") ? node.get("componenttype").asInt(-1) : -1;
@@ -77,24 +91,34 @@ public class BotComponentDescriptor {
         String connectionReference = null;
         String operationId = null;
         String modelDescription = null;
+        // OPENICF-5010 begin
+        String targetBotSchemaName = null;
+        // OPENICF-5010 end
 
         if (componentType == COMPONENT_TYPE_TOPIC_V2) {
             String data = text(node, "data");
             if (data != null) {
                 // OPENICF-5011 begin
                 Map<String, Object> yaml = parseYamlData(data, id);
-                dataKind          = stringVal(yaml, "kind");
-                actionKind        = stringValNested(yaml, "action", "kind");
+                dataKind            = stringVal(yaml, "kind");
+                actionKind          = stringValNested(yaml, "action", "kind");
                 connectionReference = stringVal(yaml, "connectionReference");
-                operationId       = resolveOperationId(yaml);
-                modelDescription  = stringVal(yaml, "modelDescription");
+                operationId         = resolveOperationId(yaml);
+                modelDescription    = stringVal(yaml, "modelDescription");
                 // OPENICF-5011 end
+                // OPENICF-5010 begin
+                targetBotSchemaName = stringValNested(yaml, "action", "botSchemaName");
+                // OPENICF-5010 end
             }
         }
 
         return new BotComponentDescriptor(id, name, componentType, parentBotId, schemaName,
                 description, createdOn, modifiedOn, dataKind, actionKind,
-                connectionReference, operationId, modelDescription);
+                connectionReference, operationId, modelDescription,
+                // OPENICF-5010 begin
+                targetBotSchemaName
+                // OPENICF-5010 end
+        );
     }
 
     public ComponentKind getComponentKind() {
@@ -155,9 +179,12 @@ public class BotComponentDescriptor {
 
     // --- Accessors used by BotDescriptor ---
 
-    public String getBotComponentId() { return botComponentId; }
-    public String getParentBotId()    { return parentBotId; }
-    public String getSchemaName()     { return schemaName; }
+    public String getBotComponentId()      { return botComponentId; }
+    public String getParentBotId()         { return parentBotId; }
+    public String getSchemaName()          { return schemaName; }
+    // OPENICF-5010 begin
+    public String getTargetBotSchemaName() { return targetBotSchemaName; }
+    // OPENICF-5010 end
 
     // --- OPENICF-5011 begin: SnakeYAML-based parsing helpers ---
 
@@ -178,9 +205,25 @@ public class BotComponentDescriptor {
                     botComponentId, parsed == null ? "null" : parsed.getClass().getSimpleName());
             return Collections.emptyMap();
         } catch (Exception e) {
+            // OPENICF-5014 begin
+            // SnakeYAML failed (e.g. @ character or unquoted colon in embedded content).
+            // Fall back to line-scanner for kind and action.kind — enough for classification.
+            String kind = extractYamlValue(data, "kind:");
+            String actionKind = extractActionKind(data);
+            if (kind != null) {
+                Map<String, Object> synthetic = new HashMap<>();
+                synthetic.put("kind", kind);
+                if (actionKind != null) {
+                    Map<String, Object> action = new HashMap<>();
+                    action.put("kind", actionKind);
+                    synthetic.put("action", action);
+                }
+                return synthetic;
+            }
             LOG.warn("Failed to parse YAML data for botcomponent {0}: {1}; treating as unclassified",
                     botComponentId, e.getMessage());
             return Collections.emptyMap();
+            // OPENICF-5014 end
         }
     }
 
@@ -222,6 +265,45 @@ public class BotComponentDescriptor {
     }
 
     // --- OPENICF-5011 end ---
+
+    // OPENICF-5014 begin
+    /** Extracts the value of a top-level YAML scalar key by scanning lines. */
+    private static String extractYamlValue(String yaml, String key) {
+        for (String line : yaml.split("\n")) {
+            String trimmed = line.trim();
+            if (trimmed.startsWith(key)) {
+                String value = trimmed.substring(key.length()).trim();
+                return value.isEmpty() ? null : value;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Extracts action.kind by scanning for an "action:" block and reading the
+     * first "kind:" line within it.
+     */
+    private static String extractActionKind(String yaml) {
+        String[] lines = yaml.split("\n");
+        boolean inAction = false;
+        for (String line : lines) {
+            String trimmed = line.trim();
+            if (trimmed.equals("action:") || trimmed.startsWith("action: ")) {
+                inAction = true;
+                continue;
+            }
+            if (inAction) {
+                if (trimmed.startsWith("kind:")) {
+                    return trimmed.substring("kind:".length()).trim();
+                }
+                if (!line.startsWith(" ") && !line.startsWith("\t") && !trimmed.isEmpty()) {
+                    break;
+                }
+            }
+        }
+        return null;
+    }
+    // OPENICF-5014 end
 
     private static String text(JsonNode node, String field) {
         JsonNode f = node.get(field);

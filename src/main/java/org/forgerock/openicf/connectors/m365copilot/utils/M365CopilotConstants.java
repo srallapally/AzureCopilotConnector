@@ -50,14 +50,39 @@ public final class M365CopilotConstants {
     public static final String ATTR_MODIFIED_ON           = "modifiedOn";
     public static final String ATTR_TOOL_IDS              = "toolIds";
     public static final String ATTR_KNOWLEDGE_BASE_IDS    = "knowledgeBaseIds";
-    // OPENICF-5007 begin: renamed from ATTR_CONNECTED_AGENTS/"connectedAgents" — the value is the TaskDialog schemaName, a reference not a resolved target agent. Real target-bot extraction tracked as OPENICF-5010.
+    // OPENICF-5007 begin: renamed from ATTR_CONNECTED_AGENTS/"connectedAgents"
     public static final String ATTR_CONNECTED_AGENT_REFERENCES = "connectedAgentReferences";
     // OPENICF-5007 end
+    // OPENICF-5010 begin
+    public static final String ATTR_CONNECTED_AGENT_TARGET_SCHEMA_NAME = "connectedAgentTargetSchemaName";
+    public static final String ATTR_CONNECTED_AGENT_TARGET_BOT_ID      = "connectedAgentTargetBotId";
+    // OPENICF-5010 end
 
     // __ACCOUNT__ configuration-derived attribute names
     public static final String ATTR_CONTENT_MODERATION         = "contentModeration";
     public static final String ATTR_GENERATIVE_ACTIONS_ENABLED = "generativeActionsEnabled";
     public static final String ATTR_USE_MODEL_KNOWLEDGE        = "useModelKnowledge";
+
+    // __ACCOUNT__ owner attributes (populated from inventory JSON) — OPENICF-INV-001 begin
+    public static final String ATTR_OWNER_PRINCIPAL_ID        = "ownerPrincipalId";
+    public static final String ATTR_OWNER_DISPLAY_NAME        = "ownerDisplayName";
+    public static final String ATTR_OWNER_USER_PRINCIPAL_NAME = "ownerUserPrincipalName";
+    public static final String ATTR_OWNER_MAIL                = "ownerMail";
+    public static final String ATTR_OWNER_PRINCIPAL_TYPE      = "ownerPrincipalType";
+    // OPENICF-INV-001 end
+
+    // __ACCOUNT__ connection reference attributes (populated from inventory JSON) — OPENICF-INV-001 begin
+    public static final String ATTR_CONNECTION_REFERENCE_ID                  = "connectionReferenceId";
+    public static final String ATTR_CONNECTION_REFERENCE_DISPLAY_NAME        = "connectionReferenceDisplayName";
+    public static final String ATTR_CONNECTION_REFERENCE_LOGICAL_NAME        = "connectionReferenceLogicalName";
+    public static final String ATTR_CONNECTOR_ID                             = "connectorId";
+    public static final String ATTR_CONNECTION_ID                            = "connectionId";
+    public static final String ATTR_CONNECTION_REFERENCE_STATE_CODE          = "connectionReferenceStateCode";
+    public static final String ATTR_CONNECTION_REFERENCE_STATUS_CODE         = "connectionReferenceStatusCode";
+    public static final String ATTR_CONNECTION_REFERENCE_AUTH_INFERRED_TYPE  = "connectionReferenceAuthInferredType";
+    public static final String ATTR_CONNECTION_INSTANCE_COUNT                = "connectionInstanceCount";
+    public static final String ATTR_CONNECTION_INSTANCE_AUTH_INFERRED_TYPE   = "connectionInstanceAuthInferredType";
+    // OPENICF-INV-001 end
 
     // agentTool attribute names
     public static final String ATTR_TOOL_TYPE            = "toolType";
@@ -74,8 +99,8 @@ public final class M365CopilotConstants {
     public static final String ATTR_SCOPE_RESOURCE_ID = "scopeResourceId";
 
     // accessControlPolicy integer values
-    public static final int ACCESS_POLICY_ANY             = 0;
-    public static final int ACCESS_POLICY_AGENT_READERS   = 1;
+    public static final int ACCESS_POLICY_ANY              = 0;
+    public static final int ACCESS_POLICY_AGENT_READERS    = 1;
     public static final int ACCESS_POLICY_GROUP_MEMBERSHIP = 2;
-    public static final int ACCESS_POLICY_ANY_MULTITENANT = 3;
+    public static final int ACCESS_POLICY_ANY_MULTITENANT  = 3;
 }

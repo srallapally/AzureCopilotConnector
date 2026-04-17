@@ -10,7 +10,7 @@
     <version>1.5.20.33</version>
     <packaging>bundle</packaging>
 
-    <n>Copilot Studio Connector</n>
+    <name>Copilot Studio Connector</name>
     <description>OpenICF connector for Microsoft Copilot Studio agent governance via Power Platform Dataverse API</description>
 
     <properties>
@@ -167,5 +167,4 @@
             </plugin>
         </plugins>
     </build>
-
 </project>

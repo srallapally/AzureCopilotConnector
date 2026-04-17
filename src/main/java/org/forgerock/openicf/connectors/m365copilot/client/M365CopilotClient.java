@@ -194,7 +194,10 @@ public class M365CopilotClient {
                 return cachedInventory;
             }
             if (cfg.getToolsInventoryUrl() != null && !cfg.getToolsInventoryUrl().isEmpty()) {
-                cachedInventory = executeGet(cfg.getToolsInventoryUrl());
+                // OPENICF-5014 begin: SAS URLs are self-authenticating — sending a Bearer token alongside
+                // the SAS signature causes Azure Blob Storage to return 400 InvalidAuthenticationInfo.
+                cachedInventory = executeGetUnauthenticated(cfg.getToolsInventoryUrl());
+                // OPENICF-5014 end
                 return cachedInventory;
             }
             if (cfg.getToolsInventoryFilePath() != null && !cfg.getToolsInventoryFilePath().isEmpty()) {
@@ -275,6 +278,14 @@ public class M365CopilotClient {
         get.setHeader("OData-Version", "4.0");
         return execute(get);
     }
+
+    // OPENICF-5014 begin: unauthenticated GET for SAS URLs — no Authorization header
+    private JsonNode executeGetUnauthenticated(String url) {
+        HttpGet get = new HttpGet(url);
+        get.setHeader("Accept", "application/json");
+        return execute(get);
+    }
+    // OPENICF-5014 end
 
     private JsonNode execute(HttpUriRequest request) {
         // OPENICF-5003 begin
