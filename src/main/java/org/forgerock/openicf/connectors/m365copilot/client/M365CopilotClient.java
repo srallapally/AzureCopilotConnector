@@ -46,7 +46,12 @@ public class M365CopilotClient {
     private static final String BOTS_SELECT =
             "botid,name,statecode,statuscode,accesscontrolpolicy,authorizedsecuritygroupids," +
                     "authenticationmode,runtimeprovider,language,schemaname,publishedon,createdon,modifiedon," +
-                    "configuration";
+                    "configuration,_ownerid_value";
+
+    // OPENICF-5015 begin: expand owninguser to source owner attributes directly from Dataverse
+    private static final String BOTS_EXPAND =
+            "owninguser($select=systemuserid,fullname,domainname,azureactivedirectoryobjectid,internalemailaddress)";
+    // OPENICF-5015 end
 
     private static final String BOT_COMPONENTS_SELECT =
             "botcomponentid,name,componenttype,data,_parentbotid_value,schemaname,description,createdon,modifiedon";
@@ -139,10 +144,13 @@ public class M365CopilotClient {
     public List<JsonNode> listAllBots() {
         synchronized (cacheLock) {
             if (cachedBots == null) {
+                // OPENICF-5015 begin
                 URI uri = new URIBuilderWrapper("/bots")
                         .addParameter("$select", BOTS_SELECT)
+                        .addParameter("$expand", BOTS_EXPAND)
                         .addParameter("$orderby", "createdon asc")
                         .build();
+                // OPENICF-5015 end
                 cachedBots = getAllPages(uri);
                 LOG.ok("Loaded {0} bots into cache", cachedBots.size());
             }
@@ -173,9 +181,12 @@ public class M365CopilotClient {
     // --- GET by UID ---
 
     public JsonNode getBot(String botId) {
+        // OPENICF-5015 begin
         URI uri = new URIBuilderWrapper("/bots(" + botId + ")")
                 .addParameter("$select", BOTS_SELECT)
+                .addParameter("$expand", BOTS_EXPAND)
                 .build();
+        // OPENICF-5015 end
         return executeGet(uri);
     }
 

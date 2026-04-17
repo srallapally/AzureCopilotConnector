@@ -34,13 +34,24 @@ public class BotDescriptor {
     private final String contentModeration;
     private final Boolean generativeActionsEnabled;
     private final Boolean useModelKnowledge;
+    // OPENICF-5015 begin: owner fields sourced from owninguser expansion
+    private final String ownerPrincipalId;
+    private final String ownerDisplayName;
+    private final String ownerUserPrincipalName;
+    private final String ownerMail;
+    // OPENICF-5015 end
 
     private BotDescriptor(String botId, String name, Integer statecode, Integer statuscode,
                           String accessControlPolicy, String authenticationMode,
                           String runtimeProvider, String language, String schemaName,
                           String publishedOn, String createdOn, String modifiedOn,
                           String contentModeration, Boolean generativeActionsEnabled,
-                          Boolean useModelKnowledge) {
+                          Boolean useModelKnowledge,
+                          // OPENICF-5015 begin
+                          String ownerPrincipalId, String ownerDisplayName,
+                          String ownerUserPrincipalName, String ownerMail
+                          // OPENICF-5015 end
+    ) {
         this.botId = botId;
         this.name = name;
         this.statecode = statecode;
@@ -56,6 +67,12 @@ public class BotDescriptor {
         this.contentModeration = contentModeration;
         this.generativeActionsEnabled = generativeActionsEnabled;
         this.useModelKnowledge = useModelKnowledge;
+        // OPENICF-5015 begin
+        this.ownerPrincipalId = ownerPrincipalId;
+        this.ownerDisplayName = ownerDisplayName;
+        this.ownerUserPrincipalName = ownerUserPrincipalName;
+        this.ownerMail = ownerMail;
+        // OPENICF-5015 end
     }
 
     public static BotDescriptor fromJson(JsonNode node) {
@@ -104,6 +121,20 @@ public class BotDescriptor {
             }
         }
 
+        // OPENICF-5015 begin: read owner attributes from owninguser expansion
+        String ownerPrincipalId = null;
+        String ownerDisplayName = null;
+        String ownerUserPrincipalName = null;
+        String ownerMail = null;
+        JsonNode owningUser = node.get("owninguser");
+        if (owningUser != null && !owningUser.isNull()) {
+            ownerPrincipalId = text(owningUser, "azureactivedirectoryobjectid");
+            ownerDisplayName = text(owningUser, "fullname");
+            ownerUserPrincipalName = text(owningUser, "domainname");
+            ownerMail = text(owningUser, "internalemailaddress");
+        }
+        // OPENICF-5015 end
+
         return new BotDescriptor(
                 botId, name, statecode, statuscode, accessControlPolicy,
                 text(node, "authenticationmode"),
@@ -113,7 +144,10 @@ public class BotDescriptor {
                 text(node, "publishedon"),
                 text(node, "createdon"),
                 text(node, "modifiedon"),
-                contentModeration, generativeActionsEnabled, useModelKnowledge
+                contentModeration, generativeActionsEnabled, useModelKnowledge,
+                // OPENICF-5015 begin
+                ownerPrincipalId, ownerDisplayName, ownerUserPrincipalName, ownerMail
+                // OPENICF-5015 end
         );
     }
 
@@ -135,30 +169,6 @@ public class BotDescriptor {
     }
     // OPENICF-5010 end
 
-    // OPENICF-INV-001 begin
-    /**
-     * Builds a botId → agent inventory node index from the inventory JSON agents[] array.
-     * Returns an empty map when the inventory root is null or contains no agents array.
-     */
-    public static Map<String, JsonNode> buildAgentInventoryIndex(JsonNode inventoryRoot) {
-        Map<String, JsonNode> index = new HashMap<>();
-        if (inventoryRoot == null) {
-            return index;
-        }
-        JsonNode agents = inventoryRoot.get("agents");
-        if (agents == null || !agents.isArray()) {
-            return index;
-        }
-        for (JsonNode agent : agents) {
-            String botId = text(agent, "botId");
-            if (botId != null) {
-                index.put(botId, agent);
-            }
-        }
-        return index;
-    }
-    // OPENICF-INV-001 end
-
     // OPENICF-5010 begin: added botSchemaNameIndex parameter for connected-agent target resolution
     // OPENICF-INV-001 begin: added agentInventory parameter for owner and connection attributes
     /**
@@ -168,11 +178,11 @@ public class BotDescriptor {
      * @param botSchemaNameIndex schemaname → botid index for connected-agent resolution
      * @param agentInventory     inventory JSON node for this bot (may be null)
      */
+    // OPENICF-5015 begin: removed agentInventory parameter — owner attrs now sourced from Dataverse owninguser expansion
     public ConnectorObject toConnectorObject(List<BotComponentDescriptor> allComponents,
-                                             Map<String, String> botSchemaNameIndex,
-                                             JsonNode agentInventory) {
+                                             Map<String, String> botSchemaNameIndex) {
+        // OPENICF-5015 end
         // OPENICF-5010 end
-        // OPENICF-INV-001 end
         ConnectorObjectBuilder cob = new ConnectorObjectBuilder();
         cob.setObjectClass(ObjectClass.ACCOUNT);
         cob.setUid(botId);
@@ -195,27 +205,12 @@ public class BotDescriptor {
         if (generativeActionsEnabled != null) cob.addAttribute(ATTR_GENERATIVE_ACTIONS_ENABLED, generativeActionsEnabled);
         if (useModelKnowledge != null)        cob.addAttribute(ATTR_USE_MODEL_KNOWLEDGE, useModelKnowledge);
 
-        // OPENICF-INV-001 begin: owner and connection attributes from inventory
-        if (agentInventory != null) {
-            addTextAttr(cob, ATTR_OWNER_PRINCIPAL_ID,        agentInventory, "ownerPrincipalId");
-            addTextAttr(cob, ATTR_OWNER_DISPLAY_NAME,        agentInventory, "ownerDisplayName");
-            addTextAttr(cob, ATTR_OWNER_USER_PRINCIPAL_NAME, agentInventory, "ownerUserPrincipalName");
-            addTextAttr(cob, ATTR_OWNER_MAIL,                agentInventory, "ownerMail");
-            addTextAttr(cob, ATTR_OWNER_PRINCIPAL_TYPE,      agentInventory, "ownerPrincipalType");
-
-            addTextAttr(cob, ATTR_CONNECTION_REFERENCE_ID,                 agentInventory, "connectionReferenceId");
-            addTextAttr(cob, ATTR_CONNECTION_REFERENCE_DISPLAY_NAME,       agentInventory, "connectionReferenceDisplayName");
-            addTextAttr(cob, ATTR_CONNECTION_REFERENCE_LOGICAL_NAME,       agentInventory, "connectionReferenceLogicalName");
-            addTextAttr(cob, ATTR_CONNECTOR_ID,                            agentInventory, "connectorId");
-            addTextAttr(cob, ATTR_CONNECTION_ID,                           agentInventory, "connectionId");
-            addTextAttr(cob, ATTR_CONNECTION_REFERENCE_AUTH_INFERRED_TYPE, agentInventory, "connectionReferenceAuthInferredType");
-            addTextAttr(cob, ATTR_CONNECTION_INSTANCE_AUTH_INFERRED_TYPE,  agentInventory, "connectionInstanceAuthInferredType");
-
-            addIntAttr(cob, ATTR_CONNECTION_REFERENCE_STATE_CODE,  agentInventory, "connectionReferenceStateCode");
-            addIntAttr(cob, ATTR_CONNECTION_REFERENCE_STATUS_CODE, agentInventory, "connectionReferenceStatusCode");
-            addIntAttr(cob, ATTR_CONNECTION_INSTANCE_COUNT,        agentInventory, "connectionInstanceCount");
-        }
-        // OPENICF-INV-001 end
+        // OPENICF-5015 begin: owner attributes from Dataverse owninguser expansion
+        if (ownerPrincipalId != null)                               cob.addAttribute(ATTR_OWNER_PRINCIPAL_ID, ownerPrincipalId);
+        if (ownerDisplayName != null)                               cob.addAttribute(ATTR_OWNER_DISPLAY_NAME, ownerDisplayName);
+        if (ownerUserPrincipalName != null && !ownerUserPrincipalName.isEmpty()) cob.addAttribute(ATTR_OWNER_USER_PRINCIPAL_NAME, ownerUserPrincipalName);
+        if (ownerMail != null && !ownerMail.isEmpty())              cob.addAttribute(ATTR_OWNER_MAIL, ownerMail);
+        // OPENICF-5015 end
 
         // Derive relationship attributes from child components
         List<String> toolIds = new ArrayList<>();
@@ -278,24 +273,6 @@ public class BotDescriptor {
     // OPENICF-5013 begin
     public boolean isPublished() { return publishedOn != null; }
     // OPENICF-5013 end
-
-    // OPENICF-INV-001 begin
-    private static void addTextAttr(ConnectorObjectBuilder cob, String attrName,
-                                    JsonNode node, String field) {
-        String value = text(node, field);
-        if (value != null) {
-            cob.addAttribute(attrName, value);
-        }
-    }
-
-    private static void addIntAttr(ConnectorObjectBuilder cob, String attrName,
-                                   JsonNode node, String field) {
-        JsonNode f = node.get(field);
-        if (f != null && !f.isNull() && f.isNumber()) {
-            cob.addAttribute(attrName, f.asInt());
-        }
-    }
-    // OPENICF-INV-001 end
 
     private static String accessControlPolicyLabel(int value) {
         switch (value) {

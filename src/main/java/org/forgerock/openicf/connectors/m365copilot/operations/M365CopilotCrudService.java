@@ -60,12 +60,9 @@ public class M365CopilotCrudService {
         // OPENICF-5010 begin
         Map<String, String> botSchemaNameIndex = BotDescriptor.buildSchemaNameIndex(client.listAllBots());
         // OPENICF-5010 end
-        // OPENICF-INV-001 begin
-        JsonNode inventory = client.fetchInventoryJson();
-        Map<String, JsonNode> agentInventoryIndex = BotDescriptor.buildAgentInventoryIndex(inventory);
-        JsonNode agentInventory = agentInventoryIndex.get(botId);
-        handler.handle(bot.toConnectorObject(components, botSchemaNameIndex, agentInventory));
-        // OPENICF-INV-001 end
+        // OPENICF-5015 begin: inventory no longer fetched here; owner attrs come from Dataverse expansion
+        handler.handle(bot.toConnectorObject(components, botSchemaNameIndex));
+        // OPENICF-5015 end
     }
 
     private void searchAllAgents(ResultsHandler handler, OperationOptions options) {
@@ -75,10 +72,8 @@ public class M365CopilotCrudService {
         // OPENICF-5010 begin
         Map<String, String> botSchemaNameIndex = BotDescriptor.buildSchemaNameIndex(botNodes);
         // OPENICF-5010 end
-        // OPENICF-INV-001 begin
-        JsonNode inventory = client.fetchInventoryJson();
-        Map<String, JsonNode> agentInventoryIndex = BotDescriptor.buildAgentInventoryIndex(inventory);
-        // OPENICF-INV-001 end
+        // OPENICF-5015 begin: inventory no longer fetched here; owner attrs come from Dataverse expansion
+        // OPENICF-5015 end
 
         // OPENICF-5008 begin: pre-filter to a candidate list so the page window is applied
         // over the set IDM will actually see, not the raw Dataverse set
@@ -101,10 +96,9 @@ public class M365CopilotCrudService {
 
         for (JsonNode node : page) {
             BotDescriptor bot = BotDescriptor.fromJson(node);
-            // OPENICF-INV-001 begin
-            JsonNode agentInventory = agentInventoryIndex.get(bot.getBotId());
-            if (!handler.handle(bot.toConnectorObject(allComponents, botSchemaNameIndex, agentInventory))) {
-                // OPENICF-INV-001 end
+            // OPENICF-5015 begin
+            if (!handler.handle(bot.toConnectorObject(allComponents, botSchemaNameIndex))) {
+                // OPENICF-5015 end
                 LOG.ok("Handler returned false, stopping iteration");
                 return;
             }

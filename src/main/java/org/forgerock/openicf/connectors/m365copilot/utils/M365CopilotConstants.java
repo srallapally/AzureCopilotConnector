@@ -63,26 +63,12 @@ public final class M365CopilotConstants {
     public static final String ATTR_GENERATIVE_ACTIONS_ENABLED = "generativeActionsEnabled";
     public static final String ATTR_USE_MODEL_KNOWLEDGE        = "useModelKnowledge";
 
-    // __ACCOUNT__ owner attributes (populated from inventory JSON) — OPENICF-INV-001 begin
+    // OPENICF-5015 begin: owner attributes sourced from Dataverse owninguser expansion
     public static final String ATTR_OWNER_PRINCIPAL_ID        = "ownerPrincipalId";
     public static final String ATTR_OWNER_DISPLAY_NAME        = "ownerDisplayName";
     public static final String ATTR_OWNER_USER_PRINCIPAL_NAME = "ownerUserPrincipalName";
     public static final String ATTR_OWNER_MAIL                = "ownerMail";
-    public static final String ATTR_OWNER_PRINCIPAL_TYPE      = "ownerPrincipalType";
-    // OPENICF-INV-001 end
-
-    // __ACCOUNT__ connection reference attributes (populated from inventory JSON) — OPENICF-INV-001 begin
-    public static final String ATTR_CONNECTION_REFERENCE_ID                  = "connectionReferenceId";
-    public static final String ATTR_CONNECTION_REFERENCE_DISPLAY_NAME        = "connectionReferenceDisplayName";
-    public static final String ATTR_CONNECTION_REFERENCE_LOGICAL_NAME        = "connectionReferenceLogicalName";
-    public static final String ATTR_CONNECTOR_ID                             = "connectorId";
-    public static final String ATTR_CONNECTION_ID                            = "connectionId";
-    public static final String ATTR_CONNECTION_REFERENCE_STATE_CODE          = "connectionReferenceStateCode";
-    public static final String ATTR_CONNECTION_REFERENCE_STATUS_CODE         = "connectionReferenceStatusCode";
-    public static final String ATTR_CONNECTION_REFERENCE_AUTH_INFERRED_TYPE  = "connectionReferenceAuthInferredType";
-    public static final String ATTR_CONNECTION_INSTANCE_COUNT                = "connectionInstanceCount";
-    public static final String ATTR_CONNECTION_INSTANCE_AUTH_INFERRED_TYPE   = "connectionInstanceAuthInferredType";
-    // OPENICF-INV-001 end
+    // OPENICF-5015 end
 
     // agentTool attribute names
     public static final String ATTR_TOOL_TYPE            = "toolType";

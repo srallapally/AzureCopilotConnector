@@ -170,26 +170,12 @@ public class M365CopilotConnector implements
         ocib.addAttributeInfo(readOnly(ATTR_GENERATIVE_ACTIONS_ENABLED, Boolean.class, false));
         ocib.addAttributeInfo(readOnly(ATTR_USE_MODEL_KNOWLEDGE, Boolean.class, false));
 
-        // OPENICF-INV-001 begin: owner attributes
+        // OPENICF-5015 begin: owner attributes now sourced from Dataverse owninguser expansion; ownerPrincipalType and connection reference attributes dropped
         ocib.addAttributeInfo(readOnly(ATTR_OWNER_PRINCIPAL_ID,        String.class, false));
         ocib.addAttributeInfo(readOnly(ATTR_OWNER_DISPLAY_NAME,        String.class, false));
         ocib.addAttributeInfo(readOnly(ATTR_OWNER_USER_PRINCIPAL_NAME, String.class, false));
         ocib.addAttributeInfo(readOnly(ATTR_OWNER_MAIL,                String.class, false));
-        ocib.addAttributeInfo(readOnly(ATTR_OWNER_PRINCIPAL_TYPE,      String.class, false));
-        // OPENICF-INV-001 end
-
-        // OPENICF-INV-001 begin: connection reference attributes
-        ocib.addAttributeInfo(readOnly(ATTR_CONNECTION_REFERENCE_ID,                  String.class,  false));
-        ocib.addAttributeInfo(readOnly(ATTR_CONNECTION_REFERENCE_DISPLAY_NAME,        String.class,  false));
-        ocib.addAttributeInfo(readOnly(ATTR_CONNECTION_REFERENCE_LOGICAL_NAME,        String.class,  false));
-        ocib.addAttributeInfo(readOnly(ATTR_CONNECTOR_ID,                             String.class,  false));
-        ocib.addAttributeInfo(readOnly(ATTR_CONNECTION_ID,                            String.class,  false));
-        ocib.addAttributeInfo(readOnly(ATTR_CONNECTION_REFERENCE_STATE_CODE,          Integer.class, false));
-        ocib.addAttributeInfo(readOnly(ATTR_CONNECTION_REFERENCE_STATUS_CODE,         Integer.class, false));
-        ocib.addAttributeInfo(readOnly(ATTR_CONNECTION_REFERENCE_AUTH_INFERRED_TYPE,  String.class,  false));
-        ocib.addAttributeInfo(readOnly(ATTR_CONNECTION_INSTANCE_COUNT,                Integer.class, false));
-        ocib.addAttributeInfo(readOnly(ATTR_CONNECTION_INSTANCE_AUTH_INFERRED_TYPE,   String.class,  false));
-        // OPENICF-INV-001 end
+        // OPENICF-5015 end
 
         return ocib.build();
     }
